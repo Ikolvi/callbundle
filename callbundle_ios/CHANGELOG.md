@@ -1,3 +1,7 @@
+## 1.0.3
+
+* Version bump to align with Android permission fix.
+
 ## 1.0.2
 
 * Fix `handleType` and `hasVideo` reading from nested `ios` params instead of top-level args.

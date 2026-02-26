@@ -1,3 +1,7 @@
+## 1.0.3
+
+* Android: request notification and full-screen intent permissions explicitly.
+
 ## 1.0.2
 
 * Updated platform dependencies with incoming/outgoing call UI bug fixes.

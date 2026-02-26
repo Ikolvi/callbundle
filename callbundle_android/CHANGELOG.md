@@ -1,3 +1,9 @@
+## 1.0.3
+
+* Actually request `POST_NOTIFICATIONS` permission (API 33+) via system dialog instead of just checking.
+* Open system settings for `USE_FULL_SCREEN_INTENT` permission (API 34+) when not granted.
+* Implement `PluginRegistry.RequestPermissionsResultListener` for proper permission callback handling.
+
 ## 1.0.2
 
 * Fix full-screen intent to target the app's launch Activity instead of empty Intent.

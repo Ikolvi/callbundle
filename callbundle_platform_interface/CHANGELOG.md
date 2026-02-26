@@ -1,3 +1,7 @@
+## 1.0.3
+
+* Version bump to align with Android permission fix.
+
 ## 1.0.2
 
 * Version bump to align with iOS/Android bug fixes.

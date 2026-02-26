@@ -2,9 +2,14 @@ package com.callbundle.callbundle_android
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -13,6 +18,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import io.flutter.plugin.common.PluginRegistry
 
 /**
  * CallBundlePlugin — Main entry point for the Android implementation.
@@ -27,11 +33,13 @@ import io.flutter.plugin.common.MethodChannel.Result
  * - Ships permissions in AndroidManifest.xml (auto-merged)
  * - Implements PendingCallStore for cold-start event delivery
  */
-class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
+class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
+    PluginRegistry.RequestPermissionsResultListener {
 
     companion object {
         private const val TAG = "CallBundlePlugin"
         private const val CHANNEL_NAME = "com.callbundle/main"
+        private const val PERMISSION_REQUEST_CODE = 29741
 
         /** Singleton reference for ConnectionService to send events back. */
         @Volatile
@@ -43,6 +51,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var context: Context
     private lateinit var messenger: BinaryMessenger
     private var activity: Activity? = null
+    private var activityBinding: ActivityPluginBinding? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -54,6 +63,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     private var isConfigured = false
     private var nextEventId = 1
+
+    // Pending permission result callback
+    private var pendingPermissionResult: Result? = null
 
     // region FlutterPlugin lifecycle
 
@@ -87,18 +99,26 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
+        activityBinding = binding
+        binding.addRequestPermissionsResultListener(this)
         Log.d(TAG, "onAttachedToActivity")
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
+        activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding = null
         activity = null
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
         activity = binding.activity
+        activityBinding = binding
+        binding.addRequestPermissionsResultListener(this)
     }
 
     override fun onDetachedFromActivity() {
+        activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding = null
         activity = null
     }
 
@@ -339,42 +359,131 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
 
     private fun handleRequestPermissions(result: Result) {
         try {
-            val permissionInfo = mutableMapOf<String, Any>(
-                "manufacturer" to android.os.Build.MANUFACTURER.lowercase(),
-                "model" to android.os.Build.MODEL,
-                "osVersion" to android.os.Build.VERSION.SDK_INT.toString(),
-                "phoneAccountEnabled" to true,
-                "batteryOptimizationExempt" to false,
-                "diagnosticInfo" to mapOf(
-                    "isBudgetOem" to (oemDetector?.isBudgetOem() ?: false),
-                    "oemStrategy" to (oemDetector?.getRecommendedStrategy() ?: "standard")
-                )
-            )
+            val currentActivity = activity
+            if (currentActivity == null) {
+                // No activity: just return current status without requesting
+                result.success(buildPermissionInfo())
+                return
+            }
 
-            // Check notification permission (API 33+)
-            if (android.os.Build.VERSION.SDK_INT >= 33) {
+            // Check if POST_NOTIFICATIONS permission needs to be requested (API 33+)
+            if (Build.VERSION.SDK_INT >= 33) {
                 val hasNotifPerm = context.checkSelfPermission(
                     android.Manifest.permission.POST_NOTIFICATIONS
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                permissionInfo["notificationPermission"] = if (hasNotifPerm) "granted" else "denied"
-            } else {
-                permissionInfo["notificationPermission"] = "granted"
+
+                if (!hasNotifPerm) {
+                    // Request the permission — result will be delivered via onRequestPermissionsResult
+                    pendingPermissionResult = result
+                    ActivityCompat.requestPermissions(
+                        currentActivity,
+                        arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                        PERMISSION_REQUEST_CODE
+                    )
+                    return
+                }
             }
 
             // Check full screen intent permission (API 34+)
-            if (android.os.Build.VERSION.SDK_INT >= 34) {
+            if (Build.VERSION.SDK_INT >= 34) {
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-                permissionInfo["fullScreenIntentPermission"] =
-                    if (nm.canUseFullScreenIntent()) "granted" else "denied"
-            } else {
-                permissionInfo["fullScreenIntentPermission"] = "granted"
+                if (!nm.canUseFullScreenIntent()) {
+                    // Open system settings for full screen intent permission
+                    try {
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        currentActivity.startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to open full screen intent settings", e)
+                    }
+                }
             }
 
-            result.success(permissionInfo)
+            // All permissions already granted or requested
+            result.success(buildPermissionInfo())
         } catch (e: Exception) {
             result.error("PERMISSIONS_ERROR", e.message, e.stackTraceToString())
         }
     }
+
+    /**
+     * Builds the current permission info map.
+     */
+    private fun buildPermissionInfo(): Map<String, Any> {
+        val permissionInfo = mutableMapOf<String, Any>(
+            "manufacturer" to Build.MANUFACTURER.lowercase(),
+            "model" to Build.MODEL,
+            "osVersion" to Build.VERSION.SDK_INT.toString(),
+            "phoneAccountEnabled" to true,
+            "batteryOptimizationExempt" to false,
+            "diagnosticInfo" to mapOf(
+                "isBudgetOem" to (oemDetector?.isBudgetOem() ?: false),
+                "oemStrategy" to (oemDetector?.getRecommendedStrategy() ?: "standard")
+            )
+        )
+
+        // Check notification permission (API 33+)
+        if (Build.VERSION.SDK_INT >= 33) {
+            val hasNotifPerm = context.checkSelfPermission(
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            permissionInfo["notificationPermission"] = if (hasNotifPerm) "granted" else "denied"
+        } else {
+            permissionInfo["notificationPermission"] = "granted"
+        }
+
+        // Check full screen intent permission (API 34+)
+        if (Build.VERSION.SDK_INT >= 34) {
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            permissionInfo["fullScreenIntentPermission"] =
+                if (nm.canUseFullScreenIntent()) "granted" else "denied"
+        } else {
+            permissionInfo["fullScreenIntentPermission"] = "granted"
+        }
+
+        return permissionInfo
+    }
+
+    // region PluginRegistry.RequestPermissionsResultListener
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ): Boolean {
+        if (requestCode != PERMISSION_REQUEST_CODE) return false
+
+        val pending = pendingPermissionResult
+        pendingPermissionResult = null
+
+        if (pending != null) {
+            // Also check full screen intent after notification permission
+            if (Build.VERSION.SDK_INT >= 34) {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                if (!nm.canUseFullScreenIntent()) {
+                    try {
+                        val intent = Intent(
+                            Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        activity?.startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to open full screen intent settings", e)
+                    }
+                }
+            }
+
+            pending.success(buildPermissionInfo())
+        }
+
+        return true
+    }
+
+    // endregion
 
     private fun handleGetVoipToken(result: Result) {
         // VoIP tokens are iOS-only (PushKit)
