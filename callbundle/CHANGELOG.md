@@ -1,3 +1,7 @@
+## 1.0.1
+
+* Documentation updates and metadata cleanup.
+
 ## 1.0.0
 
 * Initial release of CallBundle — native incoming & outgoing call UI for Flutter.

@@ -2,7 +2,7 @@
 
 A federated Flutter plugin for managing native incoming and outgoing call UI on iOS (CallKit) and Android (TelecomManager + Notification).
 
-CallBundle is a modern replacement for `flutter_callkit_incoming`, built with reliability, scalability, and enterprise standards in mind.
+CallBundle is built with reliability, scalability, and enterprise standards in mind.
 
 ## Features
 

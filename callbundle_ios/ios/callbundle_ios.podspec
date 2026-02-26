@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'callbundle_ios'
-  s.version          = '1.0.0'
+  s.version          = '1.0.1'
   s.summary          = 'iOS implementation of the CallBundle plugin using CallKit.'
   s.description      = <<-DESC
 iOS implementation of CallBundle providing native incoming/outgoing call UI
