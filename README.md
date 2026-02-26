@@ -1,5 +1,6 @@
 # CallBundle
 
+[![pub package](https://img.shields.io/pub/v/callbundle.svg)](https://pub.dev/packages/callbundle)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Flutter](https://img.shields.io/badge/Flutter-%E2%89%A53.10-blue.svg)](https://flutter.dev)
 
@@ -11,158 +12,126 @@ Built by [Ikolvi](https://ikolvi.com).
 
 ---
 
-## Features
+## Why CallBundle?
+
+Existing call plugins suffer from silent event drops, cold-start failures, and OEM incompatibilities. CallBundle was built from scratch to solve these problems:
+
+| Problem | CallBundle Solution |
+|---------|---------------------|
+| EventChannel accept events silently dropped | **MethodChannel for ALL communication** |
+| 3 parallel accept-detection paths | **Single reliable MethodChannel path** |
+| Budget OEM no| Budget OEM no| Budget OEM no| Budget OEM no| Budget OEM no| Bu strategy** |
+| Cold-start 3-second hardcoded delay | **Deterministic PendingCallStore handshake** |
+| iOS audio session conflict with HMS | **AudioSessionManager with `.mixWithOthers`** |
+| 16 ProGuard keep rules in app | **Consumer ProGuard rules shipped in plugin** |
+| 437-line fallback plugin in app code | **Built-in AdaptiveCallNotification** |
+| `_isEndingCallKitProgrammatically` flag | **`isUserInitiated` field on every event** |
+
+---
+
+## Platform Support
 
 | Feature | iOS | Android |
-|---------|-----|---------|
+|---------|:---:|:-------:|
 | Native incoming call UI | CallKit | TelecomManager + Notification |
-| Native outgoing call UI | CallKit | TelecomManager |
-| VoIP push token | PushKit | — |
-| Cold-start call acceptance | PendingCallStore | PendingCallStore |
-| OEM-adaptive notifications | — | Budget OEM detection |
+| Native outgoing call UI | CallKit | Notification |
+| VoIP push token management | PushKit | — |
+| Cold-start call acceptance | UserDefaults | SharedPreferences |
+| OEM-adaptive notifications | — | 18+ manufacturers detected |
 | Missed call notifications | UNNotification | NotificationCompat |
-| Audio session management | AVAudioSession | MediaPlayer |
+| Audio session management | AVAudioSession | — |
 | Consumer ProGuard rules | — | Built-in |
+| Background isolate support | — | BinaryMess| Background isolate support | — | BinaryMess| Background isolate supportndle: ^1.0.0| Background isolate support | — | BinaryMess| Background isolate support | — | BiBu| Background isolate support | — | BinaryMess| Background isolroid: AndroidCallConfig(phoneAccountLabel: 'MyApp Calls'),
+  ios: IosCallConfig(supportsVideo: false, includesCallsInRecents: true),
+));
 
-## Architecture
-
-CallBundle uses Flutter's **federated plugin** architecture:
-
-```
-callbundle/                          # App-facing package (what you import)
-callbundle_platform_interface/       # Abstract API + data models
-callbundle_android/                  # Android implementation (Kotlin)
-callbundle_ios/                      # iOS implementation (Swift)
-example/                             # Demo app
-```
-
-## Installation
-
-Add to your `pubspec.yaml`:
-
-```yaml
-dependencies:
-  callbundle:
-    git:
-      url: https://github.com/Ikolvi/callbundle.git
-      path: callbundle
-```
-
-## Quick Start
-
-```dart
-import 'package:callbundle/callbundle.dart';
-
-// 1. Listen for events
+// 2. Listen for events
 CallBundle.onEvent.listen((event) {
   switch (event.type) {
     case NativeCallEventType.accepted:
-      print('Call accepted: ${event.callId}');
-    case NativeCallEventType.declined:
+      prin      prin      prin      prin      prin      prin      pventType.declined:
       print('Call declined: ${event.callId}');
     case NativeCallEventType.ended:
-      print('Call ended: ${event.callId} (user: ${event.isUserInitiated})');
+      print      print      print      print      print      print      pri;
     default:
       break;
   }
 });
 
-// 2. Configure
-await CallBundle.configure(
-  const NativeCallConfig(
-    appName: 'My App',
-    android: AndroidCallConfig(
-      phoneAccountLabel: 'My App Calls',
-    ),
-    ios: IosCallConfig(
-      supportsVideo: false,
-      includesCallsInRecents: true,
-    ),
-  ),
-);
-
 // 3. Show incoming call
-await CallBundle.showIncomingCall(
-  NativeCallParams(
-    callId: 'unique-call-id',
-    callerName: 'John Doe',
-    handle: '+1 234 567 8900',
-    callType: NativeCallType.voice,
-    android: const AndroidCallParams(),
-    ios: const IosCallParams(),
-  ),
-);
+await CallBundle.showIncomingCall(NativeCallParams(
+  callId: 'unique-call-id',
+  callerName: 'John Doe',
+  handle: '+1 234 567 8900',
+  callType: NativeCallType.voice,
+  android: const AndroidCallParams(),
+  ios: const IosCallParams(),
+));
 
 // 4. End call
 await CallBundle.endCall('unique-call-id');
 ```
 
-## API Reference
+> See the [full implementation guide](callbundle/README.md) for permissions, FCM integration, cold-start handling, and advanced usage.
 
-### CallBundle (Static API)
+---
 
-| Method | Description |
-|--------|-------------|
-| `configure(NativeCallConfig)` | Initialize the plugin with app configuration |
-| `showIncomingCall(NativeCallParams)` | Display native incoming call UI |
-| `showOutgoingCall(NativeCallParams)` | Display native outgoing call UI |
-| `endCall(String callId)` | End a specific call |
-| `endAllCalls()` | End all active calls |
-| `setCallConnected(String callId)` | Mark a call as connected |
-| `getActiveCalls()` | Get list of active calls |
-| `requestPermissions()` | Request required permissions |
-| `getVoipToken()` | Get iOS VoIP push token |
-| `onEvent` | Stream of `NativeCallEvent` |
-| `onReady` | Future that completes when native side is ready |
-| `dispose()` | Clean up resources |
+## Documentation
 
-### Key Event: `isUserInitiated`
+| Document | Description |
+|----------|-------------|
+| [**Implementation Guide**](callbundle/README.md) | Full setup, API reference, permissions, FCM, cold-start |
+| [**Platform Interface**](callbundle_platform_interface/README.md) | Abstract API contract and data models |
+| [**Android Implementation**](callbundle_android/README.md) | TelecomManager, notifications, OEM detection |
+| [**iOS Implementation**](callbundle_ios/README.md) | CallKit, PushKit, audio session management |
+| [**Example App**](example/) | Working demo with all features |
 
-Every `NativeCallEvent` includes `isUserInitiated`:
-- `true` — User tapped accept/decline on the native UI
-- `false` — Programmatic end from Dart (e.g., `CallBundle.endCall()`)
+---
 
-This eliminates the `_isEndingCallKitProgrammatically` flag pattern.
+## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##��## ## ## ## ## ## #�──�## ## ## ## ## ## ## ##��─────┐
+│         Your Flutter App        │
+│   import 'callbundle.dart'      │
+└──────────────┬──────────────────┘
+               │
+┌──────────────▼──────────────────┐
+│      callbundle (app-facing)    │
+│   Static CallBundle API class   │
+└──────────────┬──────────────────┘
+               │
+┌──────────────▼─────────────────�┌──────────────▼─────────────────�┌─� Enums         │
+└──────┬──────────────────┬───────┘
+       │                  │
+┌──────▼──────┐   ┌───────▼──────┐
+│  callbundle │   │  callbundle  │
+│  _android   │   │     _ios     │
+│  (Kotlin)   │   │   (Swift)    │
+└─────────────┘   └──────────────┘
+```
 
-## Pain Points Solved
+All communication uses **MethodChannel** (`com.callbundle/main`) in both directions. No EventChannel, no WeakReference.
 
-| # | Problem | Solution |
-|---|---------|----------|
-| 1 | EventChannel accept events silently dropped | MethodChannel for ALL communication |
-| 2 | 3 parallel accept-detection paths | Single MethodChannel path |
-| 3 | Budget OEM notifications silently fail | Built-in OEM-adaptive strategy |
-| 4 | Cold-start 3-second hardcoded delay | Deterministic PendingCallStore handshake |
-| 5 | Gradle injection on every build | Standard federated plugin registration |
-| 6 | iOS audio session conflict | AudioSessionManager with `.mixWithOthers` |
-| 7 | 16 ProGuard keep rules in app | Consumer ProGuard rules shipped in plugin |
-| 8 | Background isolate crashes | BackgroundIsolateBinaryMessenger support |
-| 9 | 437-line fallback plugin in app code | Built-in AdaptiveCallNotification |
+---
 
 ## Requirements
 
 | Platform | Minimum |
 |----------|---------|
 | Flutter | 3.10+ |
-| Dart | 3.0+ |
+| Dart SDK | 3.0+ |
 | iOS | 13.0+ |
-| Android | API 21+ (Android 5.0) |
+| Android | API 21 (Android 5.0) |
+| Kotlin | 1.9+ |
+| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ |undle | Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| tter test
+cd callbundle && fvm flucd callbundle && fvm fl_android && fvm flutter test
+cd callbundle_ios && fvm flutter test
 
-## Development
-
-```bash
-# Install dependencies
-melos bootstrap
-
-# Run analysis
-melos run analyze
-
-# Run tests
-melos run test
-
-# Format code
-melos run format
+# Run # Run # Run # Run # Run # Run # Run # Run
 ```
+
+---
 
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+**Built with reliability in mind by [Ikolvi](https://ikolvi.com).**

@@ -1,3 +1,7 @@
+## 1.0.6
+
+* Comprehensive README with MethodChannel contract and custom implementation guide.
+
 ## 1.0.5
 
 * Version bump to align with Android cold-start fix.

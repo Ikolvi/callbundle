@@ -280,7 +280,8 @@ class NotificationHelper(
     }
 
     private fun createFullScreenIntent(callId: String): PendingIntent {
-        // Launch the app's main activity for full-screen incoming call display
+        // Launch the app's main activity for full-screen incoming call display.
+        // Includes flags to show over lock screen and turn the screen on.
         val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?: Intent().apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -289,9 +290,22 @@ class NotificationHelper(
             }
 
         intent.apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            )
+            // Flags to show over lock screen (pre-API 27 support)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
+                @Suppress("DEPRECATION")
+                addFlags(
+                    android.app.KeyguardManager::class.java.let {
+                        0x00200000 // FLAG_SHOW_WHEN_LOCKED (deprecated but needed for API < 27)
+                    } or
+                    0x02000000 // FLAG_TURN_SCREEN_ON (deprecated but needed for API < 27)
+                )
+            }
             putExtra("callId", callId)
             putExtra("action", "full_screen")
         }

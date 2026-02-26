@@ -1,3 +1,7 @@
+## 1.0.6
+
+* Comprehensive README with PushKit flow, CallKit integration, audio session, and cold-start details.
+
 ## 1.0.5
 
 * Version bump to align with Android cold-start fix.

@@ -101,6 +101,10 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         activity = binding.activity
         activityBinding = binding
         binding.addRequestPermissionsResultListener(this)
+
+        // Enable lock screen display for incoming calls (API 27+)
+        applyLockScreenFlags(binding.activity)
+
         Log.d(TAG, "onAttachedToActivity")
     }
 
@@ -114,12 +118,44 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         activity = binding.activity
         activityBinding = binding
         binding.addRequestPermissionsResultListener(this)
+        applyLockScreenFlags(binding.activity)
     }
 
     override fun onDetachedFromActivity() {
         activityBinding?.removeRequestPermissionsResultListener(this)
         activityBinding = null
         activity = null
+    }
+
+    /**
+     * Applies window flags to show the activity over the lock screen
+     * and turn the screen on for incoming call full-screen intents.
+     *
+     * - API 27+: Uses `Activity.setShowWhenLocked()` and `setTurnScreenOn()`
+     * - API < 27: Uses legacy `WindowManager.LayoutParams` flags
+     */
+    private fun applyLockScreenFlags(activity: Activity) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                activity.setShowWhenLocked(true)
+                activity.setTurnScreenOn(true)
+
+                // Also dismiss keyguard for seamless lock screen transition
+                val keyguardManager =
+                    context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
+                keyguardManager?.requestDismissKeyguard(activity, null)
+            } else {
+                @Suppress("DEPRECATION")
+                activity.window.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                    android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                )
+            }
+            Log.d(TAG, "applyLockScreenFlags: Applied for API ${Build.VERSION.SDK_INT}")
+        } catch (e: Exception) {
+            Log.w(TAG, "applyLockScreenFlags: Failed to apply", e)
+        }
     }
 
     // endregion

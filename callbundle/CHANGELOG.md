@@ -1,3 +1,7 @@
+## 1.0.6
+
+* Complete implementation guide README: installation, permissions, FCM integration, cold-start handling, event patterns, configuration reference.
+
 ## 1.0.5
 
 * Version bump to align with Android cold-start fix.

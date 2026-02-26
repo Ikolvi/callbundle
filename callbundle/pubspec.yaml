@@ -1,6 +1,6 @@
 name: callbundle
 description: "Native incoming & outgoing call UI for Flutter. Provides CallKit on iOS and TelecomManager + adaptive notifications on Android."
-version: 1.0.5
+version: 1.0.6
 homepage: https://ikolvi.com
 repository: https://github.com/Ikolvi/callbundle
 issue_tracker: https://github.com/Ikolvi/callbundle/issues

@@ -1,3 +1,9 @@
+## 1.0.6
+
+* Comprehensive README with architecture, OEM detection, cold-start flow, and permission details.
+* Add lock screen support: `showWhenLocked`, `turnScreenOn`, and keyguard dismissal for incoming call full-screen intent.
+* Full-screen intent now includes `FLAG_ACTIVITY_REORDER_TO_FRONT` for reliable activity display.
+
 ## 1.0.5
 
 * Fix critical cold-start bug: Accept/Decline from notification when app is killed now persists to `PendingCallStore` instead of being silently dropped.
