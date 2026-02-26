@@ -1,15 +1,28 @@
 # callbundle_android
 
-A new Flutter plugin project.
+The Android implementation of [`callbundle`](https://pub.dev/packages/callbundle).
 
-## Getting Started
+## Usage
 
-This project is a starting point for a Flutter
-[plug-in package](https://flutter.dev/to/develop-plugins),
-a specialized package that includes platform-specific implementation code for
-Android and/or iOS.
+This package is [endorsed](https://dart.dev/tools/pub/dependencies#endorsed-packages), which means you can simply use `callbundle` normally. This package will be automatically included in your app when you target Android.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```yaml
+dependencies:
+  callbundle: ^1.0.0
+```
+
+## Features
+
+- **TelecomManager** integration with `ConnectionService`
+- **CallStyle notifications** (API 31+) with standard fallback
+- **OEM-adaptive mode** — detects 18+ budget manufacturers and adapts notification strategy
+- **Consumer ProGuard rules** — no app-level configuration needed
+- **PendingCallStore** — SharedPreferences-based cold-start event persistence
+- **Thread-safe** call state via ConcurrentHashMap
+
+## Links
+
+- [CallBundle on pub.dev](https://pub.dev/packages/callbundle)
+- [GitHub Repository](https://github.com/Ikolvi/callbundle)
+- [Ikolvi](https://ikolvi.com)
 

@@ -1,39 +1,60 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# CallBundle
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+A federated Flutter plugin for managing native incoming and outgoing call UI on iOS (CallKit) and Android (TelecomManager + Notification).
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
-
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+CallBundle is a modern replacement for `flutter_callkit_incoming`, built with reliability, scalability, and enterprise standards in mind.
 
 ## Features
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
+- **Native call UI** on both iOS (CallKit) and Android (TelecomManager + Notification)
+- **MethodChannel-only** communication — no EventChannel, no silent event drops
+- **Cold-start support** — deterministic handshake via PendingCallStore
+- **OEM-adaptive notifications** — built-in budget OEM detection and adaptive strategies
+- **Audio session management** — controlled `.mixWithOthers` mode, prevents HMS audio kill
+- **PushKit in-plugin** — VoIP push handled inside the plugin, not in AppDelegate
+- **Consumer ProGuard rules** — shipped in the plugin, no app-level configuration needed
+- **Thread-safe state** — ConcurrentHashMap (Android), serial DispatchQueue (iOS)
 
-## Getting started
+## Getting Started
 
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+Add `callbundle` to your `pubspec.yaml`:
+
+```yaml
+dependencies:
+  callbundle: ^1.0.0
+```
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
-
 ```dart
-const like = 'sample';
+import 'package:callbundle/callbundle.dart';
+
+// Configure the plugin
+await CallBundle.configure(NativeCallConfig(
+  appName: 'MyApp',
+  android: AndroidCallConfig(phoneAccountLabel: 'MyApp Calls'),
+  ios: IosCallConfig(supportsVideo: true),
+));
+
+// Listen for call events
+CallBundle.onEvent.listen((event) {
+  print('Call event: ${event.type} for call ${event.callId}');
+});
+
+// Show incoming call
+await CallBundle.showIncomingCall(NativeCallParams(
+  callId: 'unique-call-id',
+  callerName: 'John Doe',
+  callType: NativeCallType.audio,
+  handle: '+1234567890',
+));
+
+// End a call
+await CallBundle.endCall('unique-call-id');
 ```
 
-## Additional information
+## Links
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+- [GitHub Repository](https://github.com/Ikolvi/callbundle)
+- [API Documentation](https://pub.dev/documentation/callbundle/latest/)
+- [Ikolvi](https://ikolvi.com)

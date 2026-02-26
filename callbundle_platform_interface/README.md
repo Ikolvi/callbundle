@@ -1,39 +1,19 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# callbundle_platform_interface
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+A common platform interface for the [`callbundle`](https://pub.dev/packages/callbundle) plugin.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
-
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
-
-## Features
-
-TODO: List what your package can do. Maybe include images, gifs, or videos.
-
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+This interface allows platform-specific implementations of the `callbundle` plugin, as well as the plugin itself, to ensure they are supporting the same interface.
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
+To implement a new platform-specific implementation of `callbundle`, extend [`CallBundlePlatform`](lib/src/callbundle_platform.dart) with an implementation that performs the platform-specific behavior.
 
-```dart
-const like = 'sample';
-```
+## Note on Breaking Changes
 
-## Additional information
+Strongly prefer non-breaking changes (such as adding a method to the interface) over breaking changes for this package. See [flutter/flutter#127396](https://github.com/flutter/flutter/issues/127396) for discussion.
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+## Links
+
+- [CallBundle on pub.dev](https://pub.dev/packages/callbundle)
+- [GitHub Repository](https://github.com/Ikolvi/callbundle)
+- [Ikolvi](https://ikolvi.com)
