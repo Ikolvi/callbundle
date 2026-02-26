@@ -1,3 +1,7 @@
+## 1.0.5
+
+* Version bump to align with Android cold-start fix.
+
 ## 1.0.4
 
 * Add `CallBundle.checkPermissions()` for silent permission status checks.

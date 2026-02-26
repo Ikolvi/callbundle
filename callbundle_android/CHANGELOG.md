@@ -1,3 +1,8 @@
+## 1.0.5
+
+* Fix critical cold-start bug: Accept/Decline from notification when app is killed now persists to `PendingCallStore` instead of being silently dropped.
+* Cancel notification on Decline/End even when plugin instance is null.
+
 ## 1.0.4
 
 * Add `checkPermissions` native handler — returns permission status without prompting.

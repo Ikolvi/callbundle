@@ -33,15 +33,36 @@ class CallActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_ACCEPT -> {
                 Log.d(TAG, "onReceive: Accept action for callId=$callId")
-                plugin?.onCallAccepted(callId)
+                if (plugin != null) {
+                    plugin.onCallAccepted(callId)
+                } else {
+                    // App killed: plugin not alive yet.
+                    // Persist directly so deliverPendingEvents() picks it up
+                    // after Flutter engine starts and configure() is called.
+                    Log.d(TAG, "onReceive: Plugin null, persisting accept to PendingCallStore")
+                    PendingCallStore(context).savePendingAccept(callId, emptyMap<String, Any>())
+                }
             }
             ACTION_DECLINE -> {
                 Log.d(TAG, "onReceive: Decline action for callId=$callId")
-                plugin?.onCallDeclined(callId)
+                if (plugin != null) {
+                    plugin.onCallDeclined(callId)
+                } else {
+                    // App killed: cancel the notification at minimum
+                    Log.d(TAG, "onReceive: Plugin null, cancelling notification for declined call")
+                    androidx.core.app.NotificationManagerCompat.from(context)
+                        .cancel(callId.hashCode())
+                }
             }
             ACTION_END -> {
                 Log.d(TAG, "onReceive: End action for callId=$callId")
-                plugin?.onCallDeclined(callId)
+                if (plugin != null) {
+                    plugin.onCallDeclined(callId)
+                } else {
+                    Log.d(TAG, "onReceive: Plugin null, cancelling notification for ended call")
+                    androidx.core.app.NotificationManagerCompat.from(context)
+                        .cancel(callId.hashCode())
+                }
             }
             else -> {
                 Log.w(TAG, "onReceive: Unknown action ${intent.action}")
