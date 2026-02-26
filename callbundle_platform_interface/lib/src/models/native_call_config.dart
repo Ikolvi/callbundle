@@ -212,7 +212,7 @@ class IosCallConfig {
 
 /// Configuration for initializing the CallBundle plugin.
 ///
-/// Pass this to [CallBundle.configure] during app startup.
+/// Pass this to `CallBundle.configure` during app startup.
 ///
 /// Example:
 /// ```dart

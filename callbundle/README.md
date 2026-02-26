@@ -402,14 +402,19 @@ for (final call in calls) {
 }
 ```
 
-### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### Wait for ### ```
+### Wait for native readiness
+
+```dart
+await CallBundle.onReady;
+```
 
 ---
 
 ## Links
 
 - [GitHub Repository](https://github.com/Ikolvi/callbundle)
-- [API Doc- [API Doc- [API Doc- [API Doc- [API Doc- [API Docle/latest/)
+- [API Documentation](https://pub.dev/documentation/callbundle/latest/)
 - [Platform Interface](https://pub.dev/packages/callbundle_platform_interface)
-- [Android- [Androitation](ht- [Android- [Andrkages/callb- [Android- [Androitation](ht- [Android- [Andrkagedev/packages/callbundle_ios)
+- [Android Implementation](https://pub.dev/packages/callbundle_android)
+- [iOS Implementation](https://pub.dev/packages/callbundle_ios)
 - [Ikolvi](https://ikolvi.com)

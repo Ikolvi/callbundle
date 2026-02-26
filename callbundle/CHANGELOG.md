@@ -1,3 +1,9 @@
+## 1.0.7
+
+* Fix corrupted Links section in README.
+* Fix unresolved doc references (`PendingCallStore`, `PlatformException`).
+* Raise dependency lower bounds to fix `pub-downgrade` compatibility check.
+
 ## 1.0.6
 
 * Complete implementation guide README: installation, permissions, FCM integration, cold-start handling, event patterns, configuration reference.

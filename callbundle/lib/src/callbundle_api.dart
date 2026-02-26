@@ -59,7 +59,7 @@ import 'package:callbundle_platform_interface/callbundle_platform_interface.dart
 /// ## Cold-Start Handling
 ///
 /// When a user taps "Accept" while the app is killed, the plugin
-/// stores the event in [PendingCallStore]. After the Dart side calls
+/// stores the event in `PendingCallStore`. After the Dart side calls
 /// [configure], pending events are automatically delivered via [onEvent].
 /// No hardcoded delays are needed.
 class CallBundle {
@@ -101,7 +101,7 @@ class CallBundle {
   ///
   /// **Background isolate safe:** Can be called from FCM background handlers.
   ///
-  /// Throws [PlatformException] if the call cannot be shown.
+  /// Throws a `PlatformException` if the call cannot be shown.
   static Future<void> showIncomingCall(NativeCallParams params) {
     return _platform.showIncomingCall(params);
   }

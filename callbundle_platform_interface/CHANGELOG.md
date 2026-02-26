@@ -1,3 +1,7 @@
+## 1.0.7
+
+* Fix unresolved `[CallBundle.configure]` doc reference for pub.dev documentation score.
+
 ## 1.0.6
 
 * Comprehensive README with MethodChannel contract and custom implementation guide.

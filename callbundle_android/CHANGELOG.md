@@ -1,3 +1,7 @@
+## 1.0.7
+
+* Add `dartPluginClass: CallBundleAndroid` for proper federated plugin registration.
+
 ## 1.0.6
 
 * Comprehensive README with architecture, OEM detection, cold-start flow, and permission details.

@@ -1,3 +1,7 @@
+## 1.0.7
+
+* Version bump to align with pub.dev score fixes.
+
 ## 1.0.6
 
 * Comprehensive README with PushKit flow, CallKit integration, audio session, and cold-start details.
