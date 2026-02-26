@@ -1,3 +1,8 @@
+## 1.0.4
+
+* Add `checkPermissions` native handler — returns permission status without prompting.
+* Fix `requestPermissions` response to use consistent `NativeCallPermissions` format.
+
 ## 1.0.3
 
 * Actually request `POST_NOTIFICATIONS` permission (API 33+) via system dialog instead of just checking.

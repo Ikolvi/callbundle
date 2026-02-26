@@ -76,9 +76,8 @@ class _HomePageState extends State<HomePage> {
       _isConfigured = true;
     });
 
-    // Request permissions
-    final permissions = await CallBundle.requestPermissions();
-    _addLog('Permissions: ${permissions.toMap()}');
+    // Check permissions first (no prompts)
+    await _checkAndRequestPermissions();
 
     // Get VoIP token (iOS only)
     final token = await CallBundle.getVoipToken();
@@ -86,6 +85,55 @@ class _HomePageState extends State<HomePage> {
       setState(() => _voipToken = token);
       _addLog('VoIP Token: ${token.substring(0, 8)}...');
     }
+  }
+
+  /// Demonstrates the Dart-driven permission flow:
+  /// 1. Check current status (silent)
+  /// 2. Show custom explanation dialog if needed
+  /// 3. Request permissions (triggers system dialog)
+  Future<void> _checkAndRequestPermissions() async {
+    final status = await CallBundle.checkPermissions();
+    _addLog('Permission check: notification=${status.notificationPermission.name}');
+
+    if (status.notificationPermission != PermissionStatus.granted) {
+      // Show a custom explanation dialog before the system prompt
+      final shouldRequest = await _showPermissionExplanationDialog();
+      if (shouldRequest) {
+        final result = await CallBundle.requestPermissions();
+        _addLog('After request: notification=${result.notificationPermission.name}');
+      } else {
+        _addLog('User declined permission dialog');
+      }
+    } else {
+      _addLog('All permissions already granted');
+    }
+  }
+
+  /// Custom dialog explaining why permissions are needed.
+  Future<bool> _showPermissionExplanationDialog() async {
+    if (!mounted) return false;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.notifications_active, size: 48),
+        title: const Text('Enable Notifications'),
+        content: const Text(
+          'CallBundle needs notification permission to show incoming '
+          'call alerts. Without this, you may miss important calls.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Not Now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Allow'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   void _addLog(String message) {
@@ -201,6 +249,11 @@ class _HomePageState extends State<HomePage> {
                   onPressed: _isConfigured ? _getActiveCalls : null,
                   icon: const Icon(Icons.list),
                   label: const Text('Active Calls'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _isConfigured ? _checkAndRequestPermissions : null,
+                  icon: const Icon(Icons.security),
+                  label: const Text('Permissions'),
                 ),
               ],
             ),

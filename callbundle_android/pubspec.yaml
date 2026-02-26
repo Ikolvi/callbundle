@@ -1,6 +1,6 @@
 name: callbundle_android
 description: "Android implementation of the CallBundle federated Flutter plugin. Provides ConnectionService + TelecomManager + OEM-adaptive notifications."
-version: 1.0.3
+version: 1.0.4
 homepage: https://ikolvi.com
 repository: https://github.com/Ikolvi/callbundle/tree/main/callbundle_android
 issue_tracker: https://github.com/Ikolvi/callbundle/issues

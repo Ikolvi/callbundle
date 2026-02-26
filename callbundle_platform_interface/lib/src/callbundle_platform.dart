@@ -115,10 +115,34 @@ abstract class CallBundlePlatform extends PlatformInterface {
     throw UnimplementedError('getActiveCalls() has not been implemented.');
   }
 
+  /// Checks current permission status without triggering system dialogs.
+  ///
+  /// Use this to determine the current state of permissions before
+  /// deciding whether to show a custom explanation dialog to the user.
+  ///
+  /// Returns a comprehensive [NativeCallPermissions] object with
+  /// per-permission status and OEM-specific diagnostic information.
+  ///
+  /// Example:
+  /// ```dart
+  /// final status = await CallBundle.checkPermissions();
+  /// if (!status.notificationPermission.isGranted) {
+  ///   // Show custom dialog explaining why notifications are needed
+  ///   final shouldRequest = await showExplanationDialog();
+  ///   if (shouldRequest) {
+  ///     await CallBundle.requestPermissions();
+  ///   }
+  /// }
+  /// ```
+  Future<NativeCallPermissions> checkPermissions() {
+    throw UnimplementedError('checkPermissions() has not been implemented.');
+  }
+
   /// Requests and returns current permission status.
   ///
-  /// On Android, this may trigger permission request dialogs for
-  /// notifications (API 33+), full-screen intent (API 34+), etc.
+  /// On Android, this triggers system permission dialogs for:
+  /// - POST_NOTIFICATIONS (API 33+)
+  /// - USE_FULL_SCREEN_INTENT (API 34+, opens system settings)
   ///
   /// On iOS, this requests notification permission if not yet determined.
   ///

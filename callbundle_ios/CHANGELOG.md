@@ -1,3 +1,8 @@
+## 1.0.4
+
+* Add `checkPermissions` native handler — returns permission status without prompting.
+* Fix `requestPermissions` to return `NativeCallPermissions` format instead of simple map.
+
 ## 1.0.3
 
 * Version bump to align with Android permission fix.

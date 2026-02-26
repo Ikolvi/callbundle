@@ -1,3 +1,9 @@
+## 1.0.4
+
+* Add `CallBundle.checkPermissions()` for silent permission status checks.
+* Enables custom Dart dialogs before system permission prompts.
+* Example app updated with permission explanation dialog flow.
+
 ## 1.0.3
 
 * Android: request notification and full-screen intent permissions explicitly.

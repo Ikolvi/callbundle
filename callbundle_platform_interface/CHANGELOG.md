@@ -1,3 +1,8 @@
+## 1.0.4
+
+* Add `checkPermissions()` method for silent permission status checks.
+* Enables Dart-driven permission flow: check → custom dialog → request.
+
 ## 1.0.3
 
 * Version bump to align with Android permission fix.

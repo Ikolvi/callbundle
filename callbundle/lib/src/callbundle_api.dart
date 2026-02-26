@@ -147,10 +147,29 @@ class CallBundle {
     return _platform.getActiveCalls();
   }
 
-  /// Requests permissions and returns current permission status.
+  /// Checks current permission status **without** prompting the user.
   ///
-  /// May trigger permission dialogs on Android 13+ (notifications)
-  /// and Android 14+ (full-screen intent).
+  /// Use this to inspect permissions before showing a custom explanation
+  /// dialog, then call [requestPermissions] if the user agrees.
+  ///
+  /// ```dart
+  /// final status = await CallBundle.checkPermissions();
+  /// if (status.notificationPermission != PermissionStatus.granted) {
+  ///   final agreed = await showDialog<bool>(...);
+  ///   if (agreed == true) {
+  ///     await CallBundle.requestPermissions();
+  ///   }
+  /// }
+  /// ```
+  static Future<NativeCallPermissions> checkPermissions() {
+    return _platform.checkPermissions();
+  }
+
+  /// Requests permissions and returns the updated permission status.
+  ///
+  /// Triggers system permission dialogs on Android 13+ (notifications)
+  /// and Android 14+ (full-screen intent). On iOS, requests notification
+  /// authorization.
   ///
   /// Returns a comprehensive [NativeCallPermissions] object with
   /// per-permission status and OEM-specific diagnostics.

@@ -160,6 +160,30 @@ class MethodChannelCallBundle extends CallBundlePlatform {
   }
 
   @override
+  Future<NativeCallPermissions> checkPermissions() async {
+    final Map<dynamic, dynamic>? result =
+        await methodChannel.invokeMethod<Map<dynamic, dynamic>>(
+      'checkPermissions',
+    );
+
+    if (result == null) {
+      return const NativeCallPermissions(
+        notificationPermission: PermissionStatus.notDetermined,
+        fullScreenIntentPermission: PermissionStatus.notDetermined,
+        phoneAccountEnabled: false,
+        batteryOptimizationExempt: false,
+        manufacturer: 'unknown',
+        model: 'unknown',
+        osVersion: 'unknown',
+      );
+    }
+
+    return NativeCallPermissions.fromMap(
+      Map<String, dynamic>.from(result),
+    );
+  }
+
+  @override
   Future<NativeCallPermissions> requestPermissions() async {
     final Map<dynamic, dynamic>? result =
         await methodChannel.invokeMethod<Map<dynamic, dynamic>>(

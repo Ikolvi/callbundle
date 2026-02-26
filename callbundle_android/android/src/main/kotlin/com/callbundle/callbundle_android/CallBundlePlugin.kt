@@ -135,6 +135,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             "endAllCalls" -> handleEndAllCalls(result)
             "setCallConnected" -> handleSetCallConnected(call, result)
             "getActiveCalls" -> handleGetActiveCalls(result)
+            "checkPermissions" -> handleCheckPermissions(result)
             "requestPermissions" -> handleRequestPermissions(result)
             "getVoipToken" -> handleGetVoipToken(result)
             "dispose" -> handleDispose(result)
@@ -354,6 +355,18 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             result.success(callMaps)
         } catch (e: Exception) {
             result.error("GET_CALLS_ERROR", e.message, e.stackTraceToString())
+        }
+    }
+
+    /**
+     * Returns current permission status without prompting.
+     * Used by Dart to check status before showing custom dialogs.
+     */
+    private fun handleCheckPermissions(result: Result) {
+        try {
+            result.success(buildPermissionInfo())
+        } catch (e: Exception) {
+            result.error("PERMISSIONS_ERROR", e.message, e.stackTraceToString())
         }
     }
 

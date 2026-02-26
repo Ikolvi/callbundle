@@ -1,6 +1,6 @@
 name: callbundle_platform_interface
 description: "Platform interface for the CallBundle federated Flutter plugin. Defines the abstract API contract, data models, and events for native call UI."
-version: 1.0.3
+version: 1.0.4
 homepage: https://ikolvi.com
 repository: https://github.com/Ikolvi/callbundle/tree/main/callbundle_platform_interface
 issue_tracker: https://github.com/Ikolvi/callbundle/issues

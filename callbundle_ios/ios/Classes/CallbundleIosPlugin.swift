@@ -79,6 +79,8 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             handleSetCallConnected(call, result: result)
         case "getActiveCalls":
             handleGetActiveCalls(result: result)
+        case "checkPermissions":
+            handleCheckPermissions(result: result)
         case "requestPermissions":
             handleRequestPermissions(result: result)
         case "getVoipToken":
@@ -251,14 +253,72 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         result(calls)
     }
 
+    /// Checks current permission status without prompting.
+    private func handleCheckPermissions(result: @escaping FlutterResult) {
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let notifStatus: String
+            switch settings.authorizationStatus {
+            case .authorized:
+                notifStatus = "granted"
+            case .denied:
+                notifStatus = "permanentlyDenied"
+            case .notDetermined:
+                notifStatus = "notDetermined"
+            case .provisional:
+                notifStatus = "granted"
+            case .ephemeral:
+                notifStatus = "granted"
+            @unknown default:
+                notifStatus = "notDetermined"
+            }
+
+            let device = UIDevice.current
+            let permissionInfo: [String: Any] = [
+                "notificationPermission": notifStatus,
+                "fullScreenIntentPermission": "granted",
+                "phoneAccountEnabled": true,
+                "batteryOptimizationExempt": true,
+                "manufacturer": "apple",
+                "model": device.model,
+                "osVersion": device.systemVersion,
+            ]
+            DispatchQueue.main.async {
+                result(permissionInfo)
+            }
+        }
+    }
+
+    /// Requests permissions (triggers system dialogs) and returns updated status.
     private func handleRequestPermissions(result: @escaping FlutterResult) {
-        missedCallManager?.requestNotificationPermission { granted in
-            result([
-                "notification": granted,
-                // Phone/microphone are always available on iOS via CallKit
-                "phone": true,
-                "microphone": true,
-            ])
+        missedCallManager?.requestNotificationPermission { [weak self] granted in
+            // After requesting, get actual status for accurate mapping
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                let notifStatus: String
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    notifStatus = "granted"
+                case .denied:
+                    notifStatus = "permanentlyDenied"
+                case .notDetermined:
+                    notifStatus = "denied"
+                @unknown default:
+                    notifStatus = "denied"
+                }
+
+                let device = UIDevice.current
+                let permissionInfo: [String: Any] = [
+                    "notificationPermission": notifStatus,
+                    "fullScreenIntentPermission": "granted",
+                    "phoneAccountEnabled": true,
+                    "batteryOptimizationExempt": true,
+                    "manufacturer": "apple",
+                    "model": device.model,
+                    "osVersion": device.systemVersion,
+                ]
+                DispatchQueue.main.async {
+                    result(permissionInfo)
+                }
+            }
         }
     }
 
