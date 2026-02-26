@@ -1,0 +1,30 @@
+name: callbundle_ios
+description: "iOS implementation of the CallBundle plugin using CallKit."
+version: 1.0.0
+publish_to: none
+homepage: https://ikolvi.com
+repository: https://github.com/Ikolvi/callbundle/tree/main/callbundle_ios
+issue_tracker: https://github.com/Ikolvi/callbundle/issues
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  callbundle_platform_interface:
+    path: ../callbundle_platform_interface
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    implements: callbundle
+    platforms:
+      ios:
+        pluginClass: CallBundlePlugin
+        dartPluginClass: CallBundleIOS

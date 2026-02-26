@@ -1,0 +1,39 @@
+name: callbundle_workspace
+
+packages:
+  - callbundle
+  - callbundle_platform_interface
+  - callbundle_android
+  - callbundle_ios
+  - example
+
+command:
+  bootstrap:
+    usePubspecOverrides: true
+
+scripts:
+  analyze:
+    run: melos exec -- "fvm dart analyze --fatal-infos"
+    description: Run dart analyze in all packages.
+
+  format:
+    run: melos exec -- "fvm dart format ."
+    description: Format all packages.
+
+  format:check:
+    run: melos exec -- "fvm dart format --set-exit-if-changed ."
+    description: Check formatting in all packages.
+
+  test:
+    run: melos exec -- "fvm flutter test"
+    description: Run tests in all packages.
+    packageFilters:
+      dirExists: test
+
+  clean:
+    run: melos exec -- "fvm flutter clean"
+    description: Clean all packages.
+
+  pub:get:
+    run: melos exec -- "fvm flutter pub get"
+    description: Get dependencies for all packages.

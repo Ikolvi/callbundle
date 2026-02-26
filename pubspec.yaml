@@ -1,0 +1,9 @@
+name: callbundle_workspace
+description: CallBundle federated plugin monorepo workspace.
+publish_to: none
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dev_dependencies:
+  melos: ^6.0.0

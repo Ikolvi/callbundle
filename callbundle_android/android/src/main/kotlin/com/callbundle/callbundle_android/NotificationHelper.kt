@@ -1,0 +1,365 @@
+package com.callbundle.callbundle_android
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
+import android.media.RingtoneManager
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
+
+/**
+ * OEM-adaptive notification builder for incoming and ongoing calls.
+ *
+ * This class replaces the 437-line `CallNotificationPlugin.kt` that was
+ * previously maintained in the app's source code. By shipping this
+ * inside the plugin, apps get reliable call notifications without
+ * any app-level native code.
+ *
+ * ## Strategy
+ *
+ * 1. **API 31+ (Android 12+):** Uses `NotificationCompat.CallStyle.forIncomingCall()`
+ *    which provides the native call-style notification.
+ * 2. **API 26-30:** Standard high-priority notification with Accept/Decline buttons.
+ * 3. **Budget OEMs:** Avoids `RemoteViews` entirely (known inflation failures).
+ *    Uses the simplest notification layout for maximum compatibility.
+ *
+ * ## Notification ID Strategy
+ *
+ * Uses `callId.hashCode()` as the notification ID. This ensures:
+ * - Updating: posting again with the same callId replaces (not duplicates).
+ * - Canceling: can cancel by callId without tracking notification IDs.
+ */
+class NotificationHelper(
+    private val context: Context,
+    private val appName: String
+) {
+    companion object {
+        private const val TAG = "NotificationHelper"
+        private const val CHANNEL_ID = "callbundle_incoming_channel"
+        private const val CHANNEL_NAME = "Incoming Calls"
+        private const val ONGOING_CHANNEL_ID = "callbundle_ongoing_channel"
+        private const val ONGOING_CHANNEL_NAME = "Ongoing Calls"
+    }
+
+    private var mediaPlayer: MediaPlayer? = null
+    private var vibrator: Vibrator? = null
+
+    /**
+     * Ensures the notification channels exist.
+     *
+     * Creates channels proactively during [CallBundlePlugin.configure],
+     * not lazily during notification posting. This prevents the race
+     * condition where a channel is deleted and not recreated in time.
+     */
+    fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // Incoming call channel (high importance for heads-up display)
+        val incomingChannel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Notifications for incoming calls"
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+            setBypassDnd(true)
+            enableVibration(false) // We manage vibration manually
+            setSound(null, null) // We manage sound manually
+        }
+        nm.createNotificationChannel(incomingChannel)
+
+        // Ongoing call channel (default importance)
+        val ongoingChannel = NotificationChannel(
+            ONGOING_CHANNEL_ID,
+            ONGOING_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "Notifications for active/ongoing calls"
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+            enableVibration(false)
+            setSound(null, null)
+        }
+        nm.createNotificationChannel(ongoingChannel)
+
+        Log.d(TAG, "ensureNotificationChannel: Channels created/verified")
+    }
+
+    /**
+     * Shows an incoming call notification with OEM-adaptive strategy.
+     */
+    fun showIncomingCallNotification(
+        callId: String,
+        callerName: String,
+        callType: Int,
+        handle: String?,
+        callerAvatar: String?,
+        duration: Long,
+        isOemAdaptive: Boolean
+    ) {
+        val notificationId = callId.hashCode()
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.sym_call_incoming)
+            .setContentTitle(callerName)
+            .setContentText(handle ?: if (callType == 1) "Video Call" else "Voice Call")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setFullScreenIntent(createFullScreenIntent(callId), true)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !isOemAdaptive) {
+            // Use CallStyle for Android 12+ on non-budget OEMs
+            try {
+                val callerPerson = Person.Builder()
+                    .setName(callerName)
+                    .setImportant(true)
+                    .build()
+
+                val declineIntent = createActionPendingIntent(callId, "decline")
+                val acceptIntent = createActionPendingIntent(callId, "accept")
+
+                builder.setStyle(
+                    NotificationCompat.CallStyle.forIncomingCall(
+                        callerPerson,
+                        declineIntent,
+                        acceptIntent
+                    )
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "CallStyle failed, falling back to standard", e)
+                addStandardActions(builder, callId)
+            }
+        } else {
+            // Standard notification with action buttons (budget OEMs + older APIs)
+            addStandardActions(builder, callId)
+        }
+
+        try {
+            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+            Log.d(TAG, "showIncomingCallNotification: Posted for callId=$callId id=$notificationId")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "showIncomingCallNotification: Permission denied", e)
+        }
+
+        // Start ringtone and vibration
+        startRingtone()
+    }
+
+    /**
+     * Shows an ongoing call notification.
+     */
+    fun showOngoingCallNotification(
+        callId: String,
+        callerName: String,
+        callType: Int
+    ) {
+        val notificationId = callId.hashCode()
+
+        val builder = NotificationCompat.Builder(context, ONGOING_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.sym_call_outgoing)
+            .setContentTitle(callerName)
+            .setContentText(if (callType == 1) "Video Call" else "Voice Call")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setUsesChronometer(true)
+
+        // Add end call action
+        val endIntent = createActionPendingIntent(callId, "end")
+        builder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            "End Call",
+            endIntent
+        )
+
+        try {
+            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+        } catch (e: SecurityException) {
+            Log.e(TAG, "showOngoingCallNotification: Permission denied", e)
+        }
+    }
+
+    /**
+     * Cancels a notification by call ID.
+     */
+    fun cancelNotification(callId: String) {
+        val notificationId = callId.hashCode()
+        NotificationManagerCompat.from(context).cancel(notificationId)
+        Log.d(TAG, "cancelNotification: callId=$callId id=$notificationId")
+    }
+
+    /**
+     * Starts the default ringtone and vibration.
+     *
+     * Checks the ringer mode and adjusts behavior accordingly:
+     * - NORMAL: sound + vibration
+     * - VIBRATE: vibration only
+     * - SILENT: nothing
+     */
+    fun startRingtone() {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        when (audioManager.ringerMode) {
+            AudioManager.RINGER_MODE_NORMAL -> {
+                startSound()
+                startVibration()
+            }
+            AudioManager.RINGER_MODE_VIBRATE -> {
+                startVibration()
+            }
+            AudioManager.RINGER_MODE_SILENT -> {
+                // Do nothing
+            }
+        }
+    }
+
+    /**
+     * Stops any playing ringtone and vibration.
+     */
+    fun stopRingtone() {
+        try {
+            mediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
+            mediaPlayer = null
+        } catch (e: Exception) {
+            Log.e(TAG, "stopRingtone: Error stopping media player", e)
+        }
+
+        try {
+            vibrator?.cancel()
+            vibrator = null
+        } catch (e: Exception) {
+            Log.e(TAG, "stopRingtone: Error stopping vibrator", e)
+        }
+    }
+
+    /**
+     * Releases all resources.
+     */
+    fun cleanup() {
+        stopRingtone()
+    }
+
+    // region Private helpers
+
+    private fun addStandardActions(
+        builder: NotificationCompat.Builder,
+        callId: String
+    ) {
+        val declineIntent = createActionPendingIntent(callId, "decline")
+        val acceptIntent = createActionPendingIntent(callId, "accept")
+
+        builder.addAction(
+            android.R.drawable.ic_menu_close_clear_cancel,
+            "Decline",
+            declineIntent
+        )
+        builder.addAction(
+            android.R.drawable.sym_call_outgoing,
+            "Accept",
+            acceptIntent
+        )
+    }
+
+    private fun createFullScreenIntent(callId: String): PendingIntent {
+        // For now, create a basic intent. In production, this would
+        // launch a full-screen incoming call activity.
+        val intent = Intent().apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("callId", callId)
+            putExtra("action", "full_screen")
+        }
+
+        return PendingIntent.getActivity(
+            context,
+            callId.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun createActionPendingIntent(callId: String, action: String): PendingIntent {
+        val intent = Intent(context, CallActionReceiver::class.java).apply {
+            this.action = "com.callbundle.ACTION_${action.uppercase()}"
+            putExtra("callId", callId)
+        }
+
+        return PendingIntent.getBroadcast(
+            context,
+            "$callId$action".hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun startSound() {
+        try {
+            val ringtoneUri = RingtoneManager.getActualDefaultRingtoneUri(
+                context,
+                RingtoneManager.TYPE_RINGTONE
+            ) ?: return
+
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(context, ringtoneUri)
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                isLooping = true
+                prepare()
+                start()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "startSound: Failed to start ringtone", e)
+        }
+    }
+
+    private fun startVibration() {
+        try {
+            vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vm.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+
+            val pattern = longArrayOf(0, 1000, 500, 1000, 500)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator?.vibrate(
+                    VibrationEffect.createWaveform(pattern, 0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator?.vibrate(pattern, 0)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "startVibration: Failed to start vibration", e)
+        }
+    }
+
+    // endregion
+}
