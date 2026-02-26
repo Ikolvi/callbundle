@@ -1,3 +1,8 @@
+## 1.0.2
+
+* Fix full-screen intent to target the app's launch Activity instead of empty Intent.
+* Ensures incoming call notification properly brings the app to foreground.
+
 ## 1.0.1
 
 * Documentation updates and metadata cleanup.

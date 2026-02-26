@@ -1,3 +1,9 @@
+## 1.0.2
+
+* Fix `handleType` and `hasVideo` reading from nested `ios` params instead of top-level args.
+* Fix `endCall` and `setCallConnected` to accept plain string callId (matching Dart MethodChannel contract).
+* Determine video calls from `callType` field correctly.
+
 ## 1.0.1
 
 * Documentation updates and metadata cleanup.

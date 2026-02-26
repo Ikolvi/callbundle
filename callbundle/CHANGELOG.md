@@ -1,3 +1,7 @@
+## 1.0.2
+
+* Updated platform dependencies with incoming/outgoing call UI bug fixes.
+
 ## 1.0.1
 
 * Documentation updates and metadata cleanup.

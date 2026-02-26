@@ -280,12 +280,18 @@ class NotificationHelper(
     }
 
     private fun createFullScreenIntent(callId: String): PendingIntent {
-        // For now, create a basic intent. In production, this would
-        // launch a full-screen incoming call activity.
-        val intent = Intent().apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+        // Launch the app's main activity for full-screen incoming call display
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent().apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+
+        intent.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra("callId", callId)
             putExtra("action", "full_screen")
         }

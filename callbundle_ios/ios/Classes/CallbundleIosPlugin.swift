@@ -139,11 +139,16 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         let callId = args["callId"] as? String ?? UUID().uuidString
         let callerName = args["callerName"] as? String ?? "Unknown"
         let handle = args["handle"] as? String ?? ""
-        let handleType = args["handleType"] as? String ?? "generic"
-        let hasVideo = args["hasVideo"] as? Bool ?? false
+        let callType = (args["callType"] as? Int) ?? 0
+        let iosParams = args["ios"] as? [String: Any]
+
+        // Read handleType from nested ios params
+        let handleTypeStr = iosParams?["handleType"] as? String ?? "generic"
+        // Determine hasVideo from callType (1 = video) or ios.supportsVideo
+        let hasVideo = callType == 1 || (iosParams?["supportsVideo"] as? Bool ?? false)
 
         let cxHandleType: CXHandle.HandleType
-        switch handleType {
+        switch handleTypeStr {
         case "phone":
             cxHandleType = .phoneNumber
         case "email":
@@ -181,11 +186,16 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         let callId = args["callId"] as? String ?? UUID().uuidString
         let callerName = args["callerName"] as? String ?? "Unknown"
         let handle = args["handle"] as? String ?? ""
-        let handleType = args["handleType"] as? String ?? "generic"
-        let hasVideo = args["hasVideo"] as? Bool ?? false
+        let callType = (args["callType"] as? Int) ?? 0
+        let iosParams = args["ios"] as? [String: Any]
+
+        // Read handleType from nested ios params
+        let handleTypeStr = iosParams?["handleType"] as? String ?? "generic"
+        // Determine hasVideo from callType (1 = video) or ios.supportsVideo
+        let hasVideo = callType == 1 || (iosParams?["supportsVideo"] as? Bool ?? false)
 
         let cxHandleType: CXHandle.HandleType
-        switch handleType {
+        switch handleTypeStr {
         case "phone":
             cxHandleType = .phoneNumber
         case "email":
@@ -207,8 +217,8 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
     }
 
     private func handleEndCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let args = call.arguments as? [String: Any],
-              let callId = args["callId"] as? String else {
+        // Dart sends callId as a plain string, not a map
+        guard let callId = call.arguments as? String else {
             result(FlutterError(code: "INVALID_ARGS", message: "Missing callId", details: nil))
             return
         }
@@ -225,8 +235,8 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
     }
 
     private func handleSetCallConnected(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        guard let args = call.arguments as? [String: Any],
-              let callId = args["callId"] as? String else {
+        // Dart sends callId as a plain string, not a map
+        guard let callId = call.arguments as? String else {
             result(FlutterError(code: "INVALID_ARGS", message: "Missing callId", details: nil))
             return
         }

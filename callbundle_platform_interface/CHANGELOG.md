@@ -1,3 +1,7 @@
+## 1.0.2
+
+* Version bump to align with iOS/Android bug fixes.
+
 ## 1.0.1
 
 * Documentation updates and metadata cleanup.
