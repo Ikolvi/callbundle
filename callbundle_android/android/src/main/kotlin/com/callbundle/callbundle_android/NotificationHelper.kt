@@ -63,6 +63,30 @@ class NotificationHelper(
         private var mediaPlayer: MediaPlayer? = null
         @Volatile
         private var vibrator: Vibrator? = null
+
+        /**
+         * Stops ringtone and vibration from any context.
+         *
+         * Called by [IncomingCallActivity] when the plugin instance is null
+         * (killed-state: background engine already detached).
+         */
+        fun stopStaticRingtone() {
+            try {
+                mediaPlayer?.let {
+                    if (it.isPlaying) it.stop()
+                    it.release()
+                }
+                mediaPlayer = null
+            } catch (e: Exception) {
+                Log.w(TAG, "stopStaticRingtone: Error stopping media player", e)
+            }
+            try {
+                vibrator?.cancel()
+                vibrator = null
+            } catch (e: Exception) {
+                Log.w(TAG, "stopStaticRingtone: Error stopping vibrator", e)
+            }
+        }
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())

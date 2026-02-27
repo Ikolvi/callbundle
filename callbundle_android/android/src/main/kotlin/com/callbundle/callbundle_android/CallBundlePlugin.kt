@@ -857,6 +857,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      *
      * On Android 10+ (API 29+) this relies on the background activity
      * start exemption granted by the user-tapped notification PendingIntent.
+     * Uses the Activity context when available for stronger BAL exemption.
      */
     private fun bringAppToForeground(callId: String) {
         try {
@@ -872,8 +873,13 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 // DO NOT put "call_accepted" action here — onCallAccepted
                 // already sent the event (or saved to PendingCallStore).
                 // Adding it would cause onNewIntent to send a duplicate event.
-                context.startActivity(launchIntent)
-                Log.d(TAG, "bringAppToForeground: Launched activity for callId=$callId")
+
+                // Prefer Activity context for BAL exemption on Android 10+.
+                // Application context may be blocked as "background start"
+                // if no foreground Activity exists.
+                val startContext = activity ?: context
+                startContext.startActivity(launchIntent)
+                Log.d(TAG, "bringAppToForeground: Launched activity for callId=$callId (fromActivity=${activity != null})")
             } else {
                 Log.w(TAG, "bringAppToForeground: Launch intent null for ${context.packageName}")
             }

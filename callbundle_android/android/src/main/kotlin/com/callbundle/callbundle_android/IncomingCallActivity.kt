@@ -223,41 +223,59 @@ class IncomingCallActivity : Activity() {
     }
 
     private fun proceedWithAccept(id: String) {
-        val extra = callExtra?.let { bundle ->
-            mutableMapOf<String, Any>().also { map ->
-                bundle.keySet().forEach { key ->
-                    map[key] = bundle.getString(key) ?: ""
-                }
-            }
-        }
-
         cleanupAnimations()
-        finish()
 
-        val plugin = CallBundlePlugin.instance
-        if (plugin != null) {
-            plugin.onCallAccepted(id, extra)
-        } else {
-            // Plugin not alive — persist for cold-start delivery
-            Log.d(TAG, "proceedWithAccept: Plugin null, persisting to PendingCallStore")
-            PendingCallStore(this).savePendingAccept(id, extra ?: emptyMap<String, Any>())
-            try {
-                val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-                launchIntent?.apply {
-                    addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                    )
-                    putExtra("callId", id)
-                    putExtra("action", "call_accepted")
-                    callExtra?.let { putExtra("callExtra", it) }
-                }
-                launchIntent?.let { startActivity(it) }
-            } catch (e: Exception) {
-                Log.e(TAG, "proceedWithAccept: Failed to launch main app", e)
+        // CRITICAL: Launch the main Activity with "call_accepted" action
+        // FROM this IncomingCallActivity (which is in the foreground).
+        //
+        // This is essential because:
+        // 1. IncomingCallActivity is the foreground Activity, so it has
+        //    the OS-level BAL (Background Activity Launch) exemption.
+        // 2. If we call finish() first and then try to start the main
+        //    Activity from the plugin (application context), Android 10+
+        //    blocks the launch as a "background" activity start.
+        // 3. By launching from HERE, we reuse the same proven code path
+        //    as the notification Accept button (onNewIntent handler).
+        //
+        // The onNewIntent handler in CallBundlePlugin will:
+        //   - Cancel the notification
+        //   - Stop the ringtone
+        //   - Dismiss this IncomingCallActivity (safety net)
+        //   - Send the "accepted" event to Dart
+        //   - Navigate to the in-app call screen
+        try {
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            launchIntent?.apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                )
+                putExtra("callId", id)
+                putExtra("action", "call_accepted")
+                callExtra?.let { putExtra("callExtra", it) }
             }
+            if (launchIntent != null) {
+                startActivity(launchIntent)
+                Log.d(TAG, "proceedWithAccept: Launched main Activity for callId=$id")
+            } else {
+                Log.w(TAG, "proceedWithAccept: Launch intent null, using fallback")
+                // Fallback: call plugin directly (may not bring app to foreground)
+                CallBundlePlugin.instance?.onCallAccepted(id, callExtra?.let { bundle ->
+                    mutableMapOf<String, Any>().also { map ->
+                        bundle.keySet().forEach { key ->
+                            map[key] = bundle.getString(key) ?: ""
+                        }
+                    }
+                })
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "proceedWithAccept: Failed to launch main app", e)
+            // Last resort: try plugin directly
+            CallBundlePlugin.instance?.onCallAccepted(id, null)
         }
+
+        finish()
     }
 
     private fun handleDecline() {
@@ -265,15 +283,19 @@ class IncomingCallActivity : Activity() {
         Log.d(TAG, "handleDecline: callId=$id")
 
         cleanupAnimations()
-        finish()
 
         val plugin = CallBundlePlugin.instance
         if (plugin != null) {
             plugin.onCallDeclined(id)
         } else {
+            // Plugin null — cancel notification directly
             Log.d(TAG, "handleDecline: Plugin null, cancelling notification")
             NotificationManagerCompat.from(this).cancel(id.hashCode())
+            // Also stop ringtone via static helper if possible
+            NotificationHelper.stopStaticRingtone()
         }
+
+        finish()
     }
 
     // endregion
