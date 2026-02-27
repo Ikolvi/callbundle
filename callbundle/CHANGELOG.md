@@ -1,3 +1,7 @@
+## 1.0.14
+
+* Updated dependency constraints to require callbundle_platform_interface ^1.0.13, callbundle_android ^1.0.13, callbundle_ios ^1.0.13.
+
 ## 1.0.13
 
 * Version alignment — all CallBundle packages now share the same version number.
