@@ -25,6 +25,16 @@ import 'models/native_call_permissions.dart';
 /// - Uses a broadcast [StreamController] for event distribution.
 /// - Implements a deterministic handshake protocol for cold-start.
 class MethodChannelCallBundle extends CallBundlePlatform {
+  /// Creates a [MethodChannelCallBundle] and immediately registers
+  /// the native → Dart event handler.
+  ///
+  /// This ensures events from native code are received even before
+  /// [configure] is called — critical for engine recreation scenarios
+  /// where FCM messages can arrive before initialization completes.
+  MethodChannelCallBundle() {
+    _ensureHandlerRegistered();
+  }
+
   /// The method channel used for communication with native code.
   @visibleForTesting
   final MethodChannel methodChannel = const MethodChannel(
@@ -49,7 +59,12 @@ class MethodChannelCallBundle extends CallBundlePlatform {
 
   /// Sets up the incoming MethodChannel handler for native → Dart events.
   ///
-  /// This is called once during [configure]. The handler processes:
+  /// Called from the constructor to ensure events are received immediately
+  /// after the platform implementation is registered. This is critical for
+  /// engine recreation scenarios where native events (accept/decline) may
+  /// fire before [configure] is called.
+  ///
+  /// The handler processes:
   /// - `onCallEvent`: Deserializes and emits [NativeCallEvent] to the stream.
   /// - `onVoipTokenUpdated`: Emits a token-updated event (iOS only).
   /// - `onReady`: Completes the [onReady] future.

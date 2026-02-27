@@ -101,7 +101,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         notificationHelper = NotificationHelper(context, "Call")
         notificationHelper?.ensureNotificationChannel()
 
-        Log.d(TAG, "onAttachedToEngine: Plugin attached (isMainInstance=${instance == this})")
+        Log.d(TAG, "onAttachedToEngine: Plugin attached (hash=${this.hashCode()}, isMainInstance=${instance == this}, instanceHash=${instance?.hashCode()})")
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -110,7 +110,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             instance = null
         }
         notificationHelper?.cleanup()
-        Log.d(TAG, "onDetachedFromEngine: Plugin detached")
+        Log.d(TAG, "onDetachedFromEngine: Plugin detached (hash=${this.hashCode()}, wasMainInstance=${instance == null}, isConfigured=$isConfigured)")
     }
 
     // endregion
@@ -361,8 +361,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             sendReadySignal()
 
             result.success(null)
-            Log.d(TAG, "configure: Plugin configured with appName=$appName")
+            Log.d(TAG, "configure: Plugin configured with appName=$appName (instance=${this.hashCode()}, isInstance=${instance == this})")
         } catch (e: Exception) {
+            Log.e(TAG, "configure: FAILED", e)
             result.error("CONFIGURE_ERROR", e.message, e.stackTraceToString())
         }
     }
@@ -714,7 +715,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         clearLockScreenFlags()
         isConfigured = false
         result.success(null)
-        Log.d(TAG, "dispose: Plugin disposed")
+        Log.d(TAG, "dispose: Plugin disposed (hash=${this.hashCode()}, isMainInstance=${instance == this})")
     }
 
     // endregion
@@ -804,7 +805,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      * Handles a user decline action from a notification or TelecomManager.
      */
     fun onCallDeclined(callId: String) {
-        Log.d(TAG, "onCallDeclined: callId=$callId, isConfigured=$isConfigured")
+        Log.d(TAG, "onCallDeclined: callId=$callId, isConfigured=$isConfigured, hash=${this.hashCode()}, instanceHash=${instance?.hashCode()})")
         callStateManager?.updateCallState(callId, "ended")
         notificationHelper?.cancelNotification(callId)
         notificationHelper?.stopRingtone()
