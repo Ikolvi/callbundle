@@ -123,8 +123,13 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         binding.addRequestPermissionsResultListener(this)
         binding.addOnNewIntentListener(this)
 
-        // Enable lock screen display for incoming calls (API 27+)
-        applyLockScreenFlags(binding.activity)
+        // Only enable lock screen flags if there is an active accepted call.
+        // This handles Activity recreation during an ongoing call (e.g.,
+        // config change, memory pressure). During RINGING, the dedicated
+        // IncomingCallActivity shows over the lock screen instead.
+        if (callStateManager?.getAllCalls()?.any { it.isAccepted } == true) {
+            applyLockScreenFlags(binding.activity)
+        }
 
         // Check if Activity was launched by a notification Accept action
         // (killed-state: PendingIntent.getActivity starts the Activity
@@ -173,7 +178,10 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         activityBinding = binding
         binding.addRequestPermissionsResultListener(this)
         binding.addOnNewIntentListener(this)
-        applyLockScreenFlags(binding.activity)
+        // Re-apply lock screen flags only during an active accepted call
+        if (callStateManager?.getAllCalls()?.any { it.isAccepted } == true) {
+            applyLockScreenFlags(binding.activity)
+        }
     }
 
     override fun onDetachedFromActivity() {
@@ -203,6 +211,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             // Cancel the incoming call notification and ringtone
             notificationHelper?.cancelNotification(callId)
             notificationHelper?.stopRingtone()
+
+            // Dismiss the native incoming call Activity if it was showing
+            IncomingCallActivity.dismissIfShowing()
 
             // Extract caller metadata from the intent
             val extraBundle = intent.getBundleExtra("callExtra")
@@ -236,7 +247,13 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     /**
      * Applies window flags to show the activity over the lock screen
-     * and turn the screen on for incoming call full-screen intents.
+     * and turn the screen on for active call display.
+     *
+     * IMPORTANT: This is only called when a call is ACCEPTED, not during
+     * ringing. During ringing, [IncomingCallActivity] handles lock screen
+     * display with its own manifest-declared flags.
+     *
+     * The flags are cleared by [clearLockScreenFlags] when the call ends.
      *
      * - API 27+: Uses `Activity.setShowWhenLocked()` and `setTurnScreenOn()`
      * - API < 27: Uses legacy `WindowManager.LayoutParams` flags
@@ -246,22 +263,41 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 activity.setShowWhenLocked(true)
                 activity.setTurnScreenOn(true)
-
-                // Also dismiss keyguard for seamless lock screen transition
-                val keyguardManager =
-                    context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
-                keyguardManager?.requestDismissKeyguard(activity, null)
             } else {
                 @Suppress("DEPRECATION")
                 activity.window.addFlags(
                     android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                    android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
                 )
             }
             Log.d(TAG, "applyLockScreenFlags: Applied for API ${Build.VERSION.SDK_INT}")
         } catch (e: Exception) {
             Log.w(TAG, "applyLockScreenFlags: Failed to apply", e)
+        }
+    }
+
+    /**
+     * Clears the lock screen flags from the main Activity.
+     *
+     * Called when a call ends to prevent the app from being accessible
+     * over the lock screen between calls.
+     */
+    private fun clearLockScreenFlags() {
+        try {
+            val act = activity ?: return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                act.setShowWhenLocked(false)
+                act.setTurnScreenOn(false)
+            } else {
+                @Suppress("DEPRECATION")
+                act.window.clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                    android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                )
+            }
+            Log.d(TAG, "clearLockScreenFlags: Cleared")
+        } catch (e: Exception) {
+            Log.w(TAG, "clearLockScreenFlags: Failed", e)
         }
     }
 
@@ -417,6 +453,10 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             notificationHelper?.cancelNotification(callId)
             notificationHelper?.stopRingtone()
 
+            // Dismiss IncomingCallActivity and clear lock screen flags
+            IncomingCallActivity.dismissIfShowing()
+            clearLockScreenFlags()
+
             // Send event to Dart with isUserInitiated = false (programmatic)
             sendCallEvent(
                 type = "ended",
@@ -449,6 +489,10 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             callStateManager?.removeAllCalls()
             notificationHelper?.stopRingtone()
 
+            // Dismiss IncomingCallActivity and clear lock screen flags
+            IncomingCallActivity.dismissIfShowing()
+            clearLockScreenFlags()
+
             result.success(null)
             Log.d(TAG, "endAllCalls: ended ${calls.size} calls")
         } catch (e: Exception) {
@@ -465,6 +509,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
             callStateManager?.updateCallState(callId, "active")
             notificationHelper?.stopRingtone()
+
+            // Dismiss IncomingCallActivity if still showing (race condition safety)
+            IncomingCallActivity.dismissIfShowing()
 
             // Update notification to "ongoing call" style
             val callInfo = callStateManager?.getCall(callId)
@@ -650,6 +697,8 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     private fun handleDispose(result: Result) {
         notificationHelper?.cleanup()
         callStateManager?.removeAllCalls()
+        IncomingCallActivity.dismissIfShowing()
+        clearLockScreenFlags()
         isConfigured = false
         result.success(null)
         Log.d(TAG, "dispose: Plugin disposed")
@@ -706,6 +755,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         notificationHelper?.cancelNotification(callId)
         notificationHelper?.stopRingtone()
 
+        // Dismiss the native IncomingCallActivity if it was showing
+        IncomingCallActivity.dismissIfShowing()
+
         val extra = callStateManager?.getCall(callId)?.extra
             ?: intentExtra
             ?: emptyMap<String, Any>()
@@ -723,6 +775,12 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             Log.d(TAG, "onCallAccepted: Stored pending accept for callId=$callId")
         }
 
+        // Temporarily enable lock screen flags on the main Activity so
+        // the Flutter call screen is visible if the device is locked.
+        // These flags are cleared when the call ends (handleEndCall /
+        // handleEndAllCalls) to prevent full app access over lock screen.
+        activity?.let { applyLockScreenFlags(it) }
+
         // CRITICAL: Bring the app to the foreground so the user sees
         // the in-app call screen. Without this, accepting from a
         // background notification or lock screen leaves the app invisible.
@@ -736,6 +794,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         callStateManager?.updateCallState(callId, "ended")
         notificationHelper?.cancelNotification(callId)
         notificationHelper?.stopRingtone()
+
+        // Dismiss the native IncomingCallActivity if it was showing
+        IncomingCallActivity.dismissIfShowing()
 
         val extra = callStateManager?.getCall(callId)?.extra ?: emptyMap<String, Any>()
         sendCallEvent(
@@ -808,8 +869,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 )
-                launchIntent.putExtra("callId", callId)
-                launchIntent.putExtra("action", "call_accepted")
+                // DO NOT put "call_accepted" action here — onCallAccepted
+                // already sent the event (or saved to PendingCallStore).
+                // Adding it would cause onNewIntent to send a duplicate event.
                 context.startActivity(launchIntent)
                 Log.d(TAG, "bringAppToForeground: Launched activity for callId=$callId")
             } else {

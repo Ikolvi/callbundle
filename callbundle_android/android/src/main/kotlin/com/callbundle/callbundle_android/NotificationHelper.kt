@@ -133,7 +133,7 @@ class NotificationHelper(
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setFullScreenIntent(createFullScreenIntent(callId), true)
+            .setFullScreenIntent(createFullScreenIntent(callId, callerName, callType, callerAvatar, extra), true)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !isOemAdaptive) {
             // Use CallStyle for Android 12+ on non-budget OEMs
@@ -182,6 +182,8 @@ class NotificationHelper(
         mainHandler.postDelayed({
             cancelNotification(callId)
             stopRingtone()
+            // Dismiss the native incoming call screen if showing
+            IncomingCallActivity.dismissIfShowing()
             Log.d(TAG, "showIncomingCallNotification: Auto-dismissed after ${timeoutMs}ms for callId=$callId")
             // Notify Dart that the call timed out (missed)
             CallBundlePlugin.instance?.sendCallEvent(
@@ -321,40 +323,45 @@ class NotificationHelper(
         )
     }
 
-    private fun createFullScreenIntent(callId: String): PendingIntent {
-        // Launch the app's main activity for full-screen incoming call display.
-        // Includes flags to show over lock screen and turn the screen on.
-        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-            ?: Intent().apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
-            }
-
-        intent.apply {
+    /**
+     * Creates a full-screen PendingIntent that launches [IncomingCallActivity]
+     * — a dedicated native Activity shown over the lock screen.
+     *
+     * This replaces the old approach of launching the main Flutter Activity,
+     * which exposed the entire app over the lock screen (security issue).
+     *
+     * The [IncomingCallActivity] shows ONLY the caller info and
+     * Accept/Decline buttons. The main app is only brought to the
+     * foreground after the user explicitly accepts the call.
+     */
+    private fun createFullScreenIntent(
+        callId: String,
+        callerName: String,
+        callType: Int,
+        callerAvatar: String?,
+        extra: Map<*, *>
+    ): PendingIntent {
+        val intent = Intent(context, IncomingCallActivity::class.java).apply {
             addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                Intent.FLAG_ACTIVITY_NO_USER_ACTION
             )
-            // Flags to show over lock screen (pre-API 27 support)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) {
-                @Suppress("DEPRECATION")
-                addFlags(
-                    android.app.KeyguardManager::class.java.let {
-                        0x00200000 // FLAG_SHOW_WHEN_LOCKED (deprecated but needed for API < 27)
-                    } or
-                    0x02000000 // FLAG_TURN_SCREEN_ON (deprecated but needed for API < 27)
-                )
-            }
             putExtra("callId", callId)
-            putExtra("action", "full_screen")
+            putExtra("callerName", callerName)
+            putExtra("callType", callType)
+            callerAvatar?.let { putExtra("callerAvatar", it) }
+            if (extra.isNotEmpty()) {
+                val bundle = Bundle()
+                for ((key, value) in extra) {
+                    bundle.putString(key.toString(), value?.toString() ?: "")
+                }
+                putExtra("callExtra", bundle)
+            }
         }
 
         return PendingIntent.getActivity(
             context,
-            callId.hashCode(),
+            "fullscreen_$callId".hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

@@ -14,6 +14,19 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application>
+        <!-- Native incoming call Activity shown over the lock screen.
+             Only THIS Activity has lock screen flags — the main Flutter
+             Activity does NOT, preventing full app access over lock screen. -->
+        <activity
+            android:name=".IncomingCallActivity"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
         <!-- ConnectionService for TelecomManager integration -->
         <service
             android:name=".CallConnectionService"
