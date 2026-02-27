@@ -17,12 +17,30 @@ import 'models/native_call_permissions.dart';
 /// `MethodChannel("com.callbundle/main")` for bidirectional
 /// native ↔ Dart communication.
 ///
-/// **Key design decisions:**
+/// ## Why the handler is registered in the constructor
+///
+/// Previously, `_ensureHandlerRegistered()` was only called during
+/// [configure]. This caused a critical bug:
+///
+/// 1. App starts → `CallBundleAndroid()` created during plugin registration
+/// 2. FCM message arrives → native shows notification
+/// 3. User taps Decline → native calls `channel.invokeMethod("onCallEvent")`
+/// 4. **But:** Dart handler wasn't registered yet (configure not called)
+/// 5. **Result:** Event silently dropped → caller side never sees rejection
+///
+/// By registering the handler in the constructor, events are received
+/// as soon as the platform implementation exists — even before [configure].
+///
+/// ## Key design decisions
+///
 /// - Uses MethodChannel for BOTH directions (not EventChannel).
 ///   This eliminates the WeakReference/GC issue that causes silent
 ///   event drops in EventChannel-based plugins.
 /// - Supports background isolates via [BackgroundIsolateBinaryMessenger].
 /// - Uses a broadcast [StreamController] for event distribution.
+///   **Note:** Broadcast streams drop events if no listener is subscribed.
+///   [IncomingCallHandlerService.initialize] (sync) subscribes before
+///   [CallKitService.initialize] (async) calls [configure].
 /// - Implements a deterministic handshake protocol for cold-start.
 class MethodChannelCallBundle extends CallBundlePlatform {
   /// Creates a [MethodChannelCallBundle] and immediately registers

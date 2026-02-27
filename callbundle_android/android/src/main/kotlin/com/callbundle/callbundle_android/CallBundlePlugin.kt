@@ -26,12 +26,46 @@ import io.flutter.plugin.common.PluginRegistry
  * Handles MethodChannel communication between Dart and native Android.
  * Manages ConnectionService, TelecomManager, notifications, and call state.
  *
- * Key design decisions:
- * - Uses MethodChannel for BOTH directions (not EventChannel)
- * - Supports background isolates via strong BinaryMessenger reference
+ * ## Instance Management & the Background Engine Race
+ *
+ * Android's Flutter plugin system creates a **new plugin instance** every
+ * time a new FlutterEngine is created. This means:
+ *
+ * - **Main engine** (app startup): Creates Instance A
+ * - **Background FCM engine** (data message): Creates Instance B
+ *
+ * Each instance has its OWN [MethodChannel] bound to its engine's
+ * [BinaryMessenger]. Events sent through Instance B's channel reach
+ * the background Dart isolate, NOT the main app.
+ *
+ * ### The Race Condition (Fixed)
+ *
+ * The static [instance] field is used by [CallActionReceiver] to forward
+ * accept/decline notifications to the plugin. There was a race condition:
+ *
+ * 1. Main engine creates Instance A → `instance = A`
+ * 2. FCM background message arrives BEFORE [configure] is called
+ * 3. Background engine creates Instance B → sees `A.isConfigured=false`
+ *    → overwrites `instance = B`
+ * 4. Main engine calls [configure] → `A.isConfigured = true`
+ * 5. User taps Decline → [CallActionReceiver] reads `instance = B` (wrong!)
+ * 6. Event goes through B's channel → background isolate → silently lost
+ *
+ * ### Fix: [handleConfigure] Reclaims the Instance
+ *
+ * After setting `isConfigured = true`, [handleConfigure] sets `instance = this`.
+ * This guarantees the configured (main engine) instance is always the
+ * canonical one. Since only the main engine calls [configure], this is safe.
+ *
+ * ## Key Design Decisions
+ *
+ * - Uses MethodChannel for BOTH directions (not EventChannel) to avoid
+ *   WeakReference/GC issues that cause silent event drops
  * - Ships consumer ProGuard rules (no app-level changes needed)
  * - Ships permissions in AndroidManifest.xml (auto-merged)
- * - Implements PendingCallStore for cold-start event delivery
+ * - Implements [PendingCallStore] for cold-start event delivery
+ * - [NotificationHelper] initialized eagerly with default app name for
+ *   killed-state incoming calls (background FCM never calls [configure])
  */
 class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     PluginRegistry.RequestPermissionsResultListener,
@@ -42,7 +76,23 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         private const val CHANNEL_NAME = "com.callbundle/main"
         private const val PERMISSION_REQUEST_CODE = 29741
 
-        /** Singleton reference for ConnectionService to send events back. */
+        /**
+         * Singleton reference for static callers ([CallActionReceiver],
+         * [IncomingCallActivity]) to forward user actions to the plugin.
+         *
+         * ### Why @Volatile?
+         * Multiple threads access this field:
+         * - Main thread: [onAttachedToEngine], [handleConfigure]
+         * - BroadcastReceiver thread: [CallActionReceiver.onReceive]
+         * `@Volatile` ensures reads always see the latest write.
+         *
+         * ### Lifecycle
+         * - Set in [onAttachedToEngine] (if no configured instance exists)
+         * - RECLAIMED in [handleConfigure] (always, to fix race condition)
+         * - Cleared in [onDetachedFromEngine] (if this was the instance)
+         *
+         * See class-level docs for the background engine race condition.
+         */
         @Volatile
         var instance: CallBundlePlugin? = null
             private set
@@ -70,6 +120,31 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     // region FlutterPlugin lifecycle
 
+    /**
+     * Called when this plugin is attached to a FlutterEngine.
+     *
+     * This fires for EVERY engine — main app engine AND background FCM engines.
+     * Each invocation creates a separate [MethodChannel] bound to that engine's
+     * [BinaryMessenger], so events sent on one channel only reach that engine's
+     * Dart isolate.
+     *
+     * ### Instance Preservation Logic
+     *
+     * The first instance to attach becomes [instance]. If a background engine
+     * attaches while the main instance hasn't called [configure] yet, the
+     * background instance temporarily becomes [instance]. This is corrected
+     * when [handleConfigure] reclaims the instance.
+     *
+     * We can't simply "never override" because sometimes the main engine
+     * IS the second one (e.g., app killed then restarted by FCM).
+     *
+     * ### Why NotificationHelper is Initialized Eagerly
+     *
+     * Background FCM engines call [handleShowIncomingCall] without ever
+     * calling [configure]. If notificationHelper wasn't ready, the incoming
+     * call notification would fail silently. We use a default app name ("Call")
+     * which [configure] later replaces with the real app name.
+     */
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         messenger = binding.binaryMessenger
@@ -342,6 +417,28 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     // region Method handlers
 
+    /**
+     * Handles the `configure` MethodChannel call from Dart.
+     *
+     * This is the FIRST Dart→native call after the main engine starts.
+     * It performs three critical operations:
+     *
+     * 1. **Re-initializes [NotificationHelper]** with the real app name
+     *    (replacing the default "Call" set in [onAttachedToEngine]).
+     *
+     * 2. **Reclaims [instance]** — fixes the background engine race
+     *    condition where a background FCM instance may have stolen the
+     *    static reference. Since only the main engine calls configure(),
+     *    `instance = this` is always correct here. This ensures
+     *    [CallActionReceiver] routes events through the main engine's
+     *    [MethodChannel], which reaches the main Dart isolate.
+     *
+     * 3. **Delivers pending events** — if accept was triggered during
+     *    cold-start (before configure), [PendingCallStore] holds it.
+     *    [deliverPendingEvents] sends it now via [sendCallEvent].
+     *
+     * Called by: `CallKitService.initialize()` → `CallBundle.configure()`
+     */
     private fun handleConfigure(call: MethodCall, result: Result) {
         try {
             val configMap = call.arguments as? Map<*, *> ?: run {
@@ -746,6 +843,27 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      * This is the SINGLE path for all native→Dart communication.
      * Uses MethodChannel (not EventChannel) for reliable delivery
      * that survives Activity lifecycle and GC.
+     *
+     * ## Threading
+     *
+     * Events are posted to [mainHandler] (main thread) because
+     * MethodChannel.invokeMethod MUST be called on the main thread.
+     * The caller may be on any thread (BroadcastReceiver, ConnectionService).
+     *
+     * ## Does NOT Check isConfigured
+     *
+     * This method always sends, regardless of [isConfigured]. The check
+     * for whether to send vs store is done by the CALLER:
+     * - [onCallAccepted]: Checks isConfigured → sends or stores in PendingCallStore
+     * - [onCallDeclined]: Always sends (no store — decline on cold-start
+     *   just cancels the notification, no Dart handling needed)
+     *
+     * ## Dart Reception
+     *
+     * The Dart handler ([MethodChannelCallBundle._handleNativeCall]) is
+     * registered in the constructor, so it's ready before [configure].
+     * Events land in `_eventController` (broadcast stream), consumed by
+     * [IncomingCallHandlerService].
      */
     fun sendCallEvent(
         type: String,
@@ -775,12 +893,32 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     /**
      * Handles a user accept action from a notification or TelecomManager.
      *
-     * Called by ConnectionService or notification action receiver.
+     * Called by:
+     * - [CallActionReceiver] (notification Accept button, though currently
+     *   Accept uses PendingIntent.getActivity → onNewIntent path instead)
+     * - [onNewIntent] (when Accept launches/brings forward MainActivity)
+     * - [onAttachedToActivity] (when Activity is recreated with accept intent)
+     * - [IncomingCallActivity.proceedWithAccept] (native lock screen UI)
+     *
+     * ## Event Routing
+     *
+     * - **isConfigured=true**: Sends `"accepted"` event via [sendCallEvent]
+     *   → Dart receives immediately → [IncomingCallHandlerService] navigates
+     *   to ActiveCallScreen.
+     * - **isConfigured=false** (cold-start): Stores in [PendingCallStore]
+     *   → delivered when [handleConfigure] calls [deliverPendingEvents].
+     *
+     * ## Extra Resolution Chain
+     *
+     * Call metadata (`callerName`, `callType`, etc.) is resolved in order:
+     * 1. [callStateManager] (if this instance showed the call)
+     * 2. [intentExtra] (from notification PendingIntent Bundle)
+     * 3. Empty map (fallback)
      *
      * @param callId The unique call identifier.
-     * @param intentExtra Optional extra metadata from the notification intent.
+     * @param intentExtra Optional metadata from the notification PendingIntent.
      *   Used as fallback when this instance's [callStateManager] doesn't
-     *   have the call (e.g., call was registered by a background FCM engine).
+     *   have the call (e.g., call was shown by a background FCM engine).
      */
     fun onCallAccepted(callId: String, intentExtra: Map<String, Any>? = null) {
         callStateManager?.updateCallState(callId, "active", isAccepted = true)

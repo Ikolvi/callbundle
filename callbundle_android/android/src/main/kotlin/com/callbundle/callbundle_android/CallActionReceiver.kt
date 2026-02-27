@@ -8,10 +8,51 @@ import android.util.Log
 /**
  * BroadcastReceiver for handling notification action buttons.
  *
- * Receives accept/decline/end intents from notification actions
- * and forwards them to [CallBundlePlugin] for event dispatch.
+ * Receives accept/decline/end intents from [NotificationHelper]'s
+ * PendingIntents and forwards them to [CallBundlePlugin] for event dispatch.
  *
- * This receiver must be registered in AndroidManifest.xml.
+ * ## Event Flow
+ *
+ * ```
+ * User taps Decline → Android delivers PendingIntent.getBroadcast()
+ *   → CallActionReceiver.onReceive()
+ *     → CallBundlePlugin.instance?.onCallDeclined(callId, extra)
+ *       → sendCallEvent("declined", ...) via MethodChannel
+ *         → Dart _handleNativeCall → IncomingCallHandlerService._handleDeclined
+ *           → PUT /v1/api/calls/{callId}/reject
+ * ```
+ *
+ * ## Why We Pass `callExtra` on Decline
+ *
+ * The `callExtra` Bundle is embedded in the notification PendingIntent by
+ * [NotificationHelper.createActionPendingIntent]. We extract and pass it
+ * to [CallBundlePlugin.onCallDeclined] as a fallback because:
+ *
+ * - [CallBundlePlugin.callStateManager] is per-instance and wiped on
+ *   engine recreation
+ * - If the incoming call was shown by a background FCM engine (Instance B)
+ *   but decline is handled by the main engine (Instance A), Instance A's
+ *   callStateManager doesn't have the call data
+ * - The PendingIntent Bundle is the only reliable source of call metadata
+ *   across engine boundaries
+ *
+ * ## Accept vs Decline PendingIntent Types
+ *
+ * - **Accept**: Uses `PendingIntent.getActivity()` → launches MainActivity
+ *   directly. This is NOT routed through CallActionReceiver.
+ * - **Decline/End**: Uses `PendingIntent.getBroadcast()` → this receiver.
+ *
+ * ## Important: bringAppToForeground on Accept
+ *
+ * The Accept case calls [bringAppToForeground] but does NOT add
+ * `"call_accepted"` action to the launch intent. This prevents a
+ * duplicate `onNewIntent → onCallAccepted` event since `onCallAccepted()`
+ * was already called directly above.
+ *
+ * This receiver must be registered in AndroidManifest.xml:
+ * ```xml
+ * <receiver android:name=".CallActionReceiver" android:exported="false" />
+ * ```
  */
 class CallActionReceiver : BroadcastReceiver() {
 
