@@ -11,6 +11,8 @@ import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -62,6 +64,8 @@ class NotificationHelper(
         @Volatile
         private var vibrator: Vibrator? = null
     }
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
      * Ensures the notification channels exist.
@@ -140,7 +144,10 @@ class NotificationHelper(
                     .build()
 
                 val declineIntent = createActionPendingIntent(callId, "decline", extra)
-                val acceptIntent = createActionPendingIntent(callId, "accept", extra)
+                // CRITICAL: Use PendingIntent.getActivity() for Accept,
+                // same as addStandardActions. getBroadcast + startActivity
+                // fails on Android 12+ BAL restrictions.
+                val acceptIntent = createAcceptActivityPendingIntent(callId, extra)
 
                 builder.setStyle(
                     NotificationCompat.CallStyle.forIncomingCall(
@@ -167,6 +174,22 @@ class NotificationHelper(
 
         // Start ringtone and vibration
         startRingtone()
+
+        // Auto-dismiss after timeout (safety net for when call_cancelled
+        // FCM is delayed by Doze mode or not delivered). Uses the
+        // duration parameter from the Dart side, clamped to 30-120s.
+        val timeoutMs = duration.coerceIn(30_000, 120_000)
+        mainHandler.postDelayed({
+            cancelNotification(callId)
+            stopRingtone()
+            Log.d(TAG, "showIncomingCallNotification: Auto-dismissed after ${timeoutMs}ms for callId=$callId")
+            // Notify Dart that the call timed out (missed)
+            CallBundlePlugin.instance?.sendCallEvent(
+                type = "timedOut",
+                callId = callId,
+                isUserInitiated = false
+            )
+        }, timeoutMs)
     }
 
     /**
@@ -206,10 +229,13 @@ class NotificationHelper(
 
     /**
      * Cancels a notification by call ID.
+     * Also cancels any pending auto-timeout for this notification.
      */
     fun cancelNotification(callId: String) {
         val notificationId = callId.hashCode()
         NotificationManagerCompat.from(context).cancel(notificationId)
+        // Cancel any pending auto-dismiss timeout
+        mainHandler.removeCallbacksAndMessages(null)
         Log.d(TAG, "cancelNotification: callId=$callId id=$notificationId")
     }
 

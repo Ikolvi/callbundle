@@ -1,8 +1,8 @@
-## 1.0.10
+## 1.0.12
 
-* **Fix: Call accept not working when app is in background** — background FCM engine was hijacking the main plugin instance, causing accept events to be stored as pending instead of delivered. Now the configured main instance is preserved and a `NewIntentListener` safety net ensures pending events are consumed.
-* **Fix: Accept notification action doesn't open app in killed state** — Accept button now uses `PendingIntent.getActivity()` directly launching the Activity instead of going through a BroadcastReceiver that tries `startActivity()` (fails on Android 12+ and many OEMs).
-* **Fix: Ringtone continues after Decline** — MediaPlayer/Vibrator are now static fields shared across all plugin instances so the main engine can stop audio started by the background FCM engine.
+* **Fix: Call accept across all app states** — comprehensive fix for background, killed, and lock screen scenarios.
+* **Android**: Preserved main plugin instance from background FCM engine hijack, Accept uses `PendingIntent.getActivity()` for reliable Activity launch, static ringtone/vibration for cross-engine cleanup, notification auto-timeout, CallStyle fix.
+* **iOS**: Fixed `reportCallConnected()`, `CXEndCallAction` isUserInitiated tracking.
 
 ## 1.0.9
 

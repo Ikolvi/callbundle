@@ -1,10 +1,12 @@
-## 1.0.10
+## 1.0.12
 
 * **Fix: Background FCM engine hijacking main plugin instance** — `onAttachedToEngine` now preserves the configured main instance so `CallActionReceiver` sends through the active MethodChannel instead of storing pending.
 * **Fix: Caller metadata missing after background accept** — `onCallAccepted` now accepts optional `intentExtra` fallback from notification PendingIntent when `callStateManager` doesn't have the call (registered by background engine).
-* **Fix: Accept notification action doesn't open app (killed state)** — Accept button now uses `PendingIntent.getActivity()` instead of `getBroadcast()`, which directly launches the Activity with a strong OS-level BAL exemption that works on Android 12+ and all OEMs. Plugin handles the intent in `onNewIntent` (background) and `onAttachedToActivity` (killed).
-* **Fix: Ringtone continues playing after decline** — `mediaPlayer` and `vibrator` are now static/companion fields shared across all `NotificationHelper` instances, so the main engine can stop the ringtone started by the background FCM engine.
-* **Safety net: `onNewIntent` delivers pending events** — if pending accept was stored (background engine fallback), the `bringAppToForeground` intent triggers pending delivery via `NewIntentListener`.
+* **Fix: Accept notification action doesn't open app (killed state)** — Accept button now uses `PendingIntent.getActivity()` instead of `getBroadcast()`, which directly launches the Activity with a strong OS-level BAL exemption that works on Android 12+ and all OEMs. Handles intent in `onNewIntent` (background) and `onAttachedToActivity` (killed).
+* **Fix: CallStyle Accept also uses getActivity** — Android 12+ `CallStyle.forIncomingCall` was still using `getBroadcast()` for Accept, now fixed.
+* **Fix: Ringtone continues playing after decline** — `mediaPlayer` and `vibrator` are now static/companion fields shared across all `NotificationHelper` instances.
+* **Fix: Notification auto-timeout** — incoming call notifications auto-dismiss after configured `duration` (default 60s), with `timedOut` event sent to Dart. Safety net for delayed `call_cancelled` FCM.
+* **Safety net: `onNewIntent` delivers pending events** — if pending accept was stored (background engine fallback), `bringAppToForeground` intent triggers pending delivery via `NewIntentListener`.
 
 ## 1.0.9
 
