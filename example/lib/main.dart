@@ -53,6 +53,16 @@ class _HomePageState extends State<HomePage> {
           'userInitiated=${event.isUserInitiated}',
         );
       });
+
+      // Log when a call is answered
+      if (event.type == NativeCallEventType.accepted) {
+        debugPrint(
+          '📞 Call Answered — callId=${event.callId}, '
+          'userInitiated=${event.isUserInitiated}, '
+          'timestamp=${event.timestamp.toIso8601String()}',
+        );
+        _addLog('✅ Call answered: ${event.callId}');
+      }
     });
 
     // Configure the plugin
