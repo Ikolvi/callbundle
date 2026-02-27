@@ -1,9 +1,9 @@
-# CallBundle — Implementation Guide
+# CallBundle
 
 [![pub package](https://img.shields.io/pub/v/callbundle.svg)](https://pub.dev/packages/callbundle)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Ikolvi/callbundle/blob/main/LICENSE)
 
-The app-facing package for CallBundle — native incoming & outgoing call UI for Flutter.
+Native incoming & outgoing call UI for Flutter. Provides CallKit on iOS and TelecomManager + OEM-adaptive notifications on Android.
 
 ---
 
@@ -15,10 +15,12 @@ The app-facing package for CallBundle — native incoming & outgoing call UI for
 4. [API Reference](#api-reference)
 5. [Permissions](#permissions)
 6. [FCM Integration](#fcm-integration)
-7. [Cold-Start Handling](#cold-start-handling)
-8. [Event Handling](#event-handling)
-9. [Configuration Options](#configuration-options)
-10. [Advanced Usage](#advanced-usage)
+7. [iOS VoIP Push (PushKit)](#ios-voip-push-pushkit)
+8. [Cold-Start Handling](#cold-start-handling)
+9. [Event Handling](#event-handling)
+10. [Configuration Options](#configuration-options)
+11. [Background Reject (Killed State)](#background-reject-killed-state)
+12. [Advanced Usage](#advanced-usage)
 
 ---
 
@@ -29,7 +31,13 @@ dependencies:
   callbundle: ^1.0.0
 ```
 
-The Android (`callbundle_android`) and iOS (`callbundle_ios`) packages are **endorsed** — they are automatically The Android (`callbundle_android`) and iOS (`callbundle_ios`) packages are d
+The Android (`callbundle_android`) and iOS (`callbundle_ios`) packages are **endorsed** — they are automatically included. No additional dependency lines needed.
+
+---
+
+## Platform Setup
+
+### Android
 
 No additional setup needed. The plugin ships:
 
@@ -37,7 +45,12 @@ No additional setup needed. The plugin ships:
 - **Consumer ProGuard rules** (no app-level rules needed)
 - **ConnectionService** and **BroadcastReceiver** registration
 
-Permissions shipped by tPermissions shipped by tPermissions shipped by tPermissions shipped by tPermisCREEN_INTENT
+Permissions shipped by the plugin:
+
+```
+FOREGROUND_SERVICE
+FOREGROUND_SERVICE_PHONE_CALL
+USE_FULL_SCREEN_INTENT
 MANAGE_OWN_CALLS
 WAKE_LOCK
 VIBRATE
@@ -45,11 +58,12 @@ POST_NOTIFICATIONS
 READ_PHONE_STATE
 READ_PHONE_NUMBERS
 SYSTEM_ALERT_WINDOW
+REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
 ```
 
 ### iOS
 
-Add these to your `Info.plist`:
+Add the VoIP background mode to your `Info.plist`:
 
 ```xml
 <key>UIBackgroundModes</key>
@@ -58,14 +72,19 @@ Add these to your `Info.plist`:
 </array>
 ```
 
-The plugin handles PushKit registration internally — no AppDelegate code needed.
+The plugin handles PushKit registration internally — **no AppDelegate code needed**.
+
+For complete iOS setup including VoIP certificate configuration, see the [callbundle_ios README](https://pub.dev/packages/callbundle_ios).
 
 ---
 
 ## Basic Usage
 
 ```dart
-import 'packagimport 'packagimport 'packagimporoid main() import 'packagetsFlutterBinding.ensureInitialized();
+import 'package:callbundle/callbundle.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
 
   // 1. Listen for call events BEFORE configure
   CallBundle.onEvent.listen(_handleCallEvent);
@@ -127,10 +146,11 @@ void _handleCallEvent(NativeCallEvent event) {
 | `showOutgoingCall(NativeCallParams)` | `Future<void>` | Show native outgoing call UI. |
 | `endCall(String callId)` | `Future<void>` | End a specific call. |
 | `endAllCalls()` | `Future<void>` | End all active calls. |
-| `setCallConnected(String callId)` | | `setCallConnected(String callId)` | | `setCa. |
-| `getActiveCalls()` | `Future<List<NativeCallInfo| `getActiveCalls()` | `Futs. |
+| `setCallConnected(String callId)` | `Future<void>` | Mark call as connected/active. |
+| `getActiveCalls()` | `Future<List<NativeCallInfo>>` | Get all active calls. |
 | `checkPermissions()` | `Future<NativeCallPermissions>` | Check status without prompting. |
 | `requestPermissions()` | `Future<NativeCallPermissions>` | Request permissions (triggers system dialogs). |
+| `requestBatteryOptimizationExemption()` | `Future<bool>` | Request Doze mode exemption (Android). |
 | `getVoipToken()` | `Future<String?>` | Get iOS VoIP push token. |
 | `onEvent` | `Stream<NativeCallEvent>` | All native call events. |
 | `onReady` | `Future<void>` | Completes when native side is ready. |
@@ -139,17 +159,24 @@ void _handleCallEvent(NativeCallEvent event) {
 ### NativeCallConfig
 
 ```dart
-const NativeCallConfig(
-  appName: 'MyApp',                    // Required
-  android: AndroidCallConfig(
-    phoneAccountLabel: 'MyApp Calls',  // TelecomManager label
-    notificationChannelName: 'Calls',  // Notification cha    notificationChannelName: 'Calls',  // Notifi // Budget OEM detection
+NativeCallConfig(
+  appName: 'MyApp',                          // Required
+  backgroundReject: BackgroundRejectConfig(   // Optional killed-state reject
+    urlPattern: 'https://api.example.com/v1/api/calls/{callId}/reject',
+    authStorageKey: 'access_token',
+  ),
+  android: const AndroidCallConfig(
+    phoneAccountLabel: 'MyApp Calls',        // TelecomManager label
+    notificationChannelName: 'Calls',        // Notification channel name
+    oemAdaptiveMode: true,                   // Budget OEM detection
   ),
   ios: IosCallConfig(
-    supportsVideo: false,         supportsVideo: false,         supportsVideo: false,         supportsVMax concurrent call groups
-    maximumCallsPerCallGroup: 1,       // Max calls per group
-    includesCallsInRecents: true,      // Show in phone Recents
-    iconTemplateImageName: null,         iconTemplateImageName: null,         iconTempl              // Custom ringtone filename
+    supportsVideo: false,                    // Video call support
+    maximumCallGroups: 1,                    // Max concurrent call groups
+    maximumCallsPerCallGroup: 1,             // Max calls per group
+    includesCallsInRecents: true,            // Show in Phone app Recents
+    iconTemplateImageName: null,             // Custom CallKit icon
+    ringtoneSound: null,                     // Custom ringtone filename
   ),
 )
 ```
@@ -158,14 +185,15 @@ const NativeCallConfig(
 
 ```dart
 NativeCallParams(
-  callId: 'unique-id',      callId: 'unique-id',      callId: 'unique-id',      callId: 'unie',             // Required — displayed to user
-  handle: '+1234567890',              // Phone number or identifier
-  callType: NativeCallType.voice,     // voice or video
-  duration: 60000,                    // Auto-dismiss timeout (ms)
-  callerAvatar: 'https://...',        // Avatar URL (Android only)
-  extra: {'roomId': 'abc'},           // Pass-through metadata
-  android: const AndroidCallParams(), // Android-specific options
-  ios: const IosCallParams(           // iOS-specific options
+  callId: 'unique-id',                       // Required — unique identifier
+  callerName: 'John Doe',                    // Required — displayed to user
+  handle: '+1234567890',                     // Phone number or identifier
+  callType: NativeCallType.voice,            // voice or video
+  duration: 60000,                           // Auto-dismiss timeout (ms)
+  callerAvatar: 'https://...',               // Avatar URL (Android only)
+  extra: {'roomId': 'abc'},                  // Pass-through metadata
+  android: const AndroidCallParams(),        // Android-specific options
+  ios: const IosCallParams(                  // iOS-specific options
     handleType: NativeHandleType.phone,
   ),
 )
@@ -175,12 +203,12 @@ NativeCallParams(
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `type` | `NativeCallEventType` | `accepted`, `declined`, `ended`, `incoming`, `missed` |
+| `type` | `NativeCallEventType` | `accepted`, `declined`, `ended`, `incoming`, `missed`, `timedOut` |
 | `callId` | `String` | The call identifier |
 | `isUserInitiated` | `bool` | `true` if user tapped the native UI button |
 | `extra` | `Map<String, dynamic>` | Pass-through metadata from `NativeCallParams.extra` |
 | `eventId` | `int` | Monotonic ID for deduplication |
-| `timestamp` | `int` | Unix timestamp in milliseconds |
+| `timestamp` | `DateTime` | When the event occurred |
 
 ### NativeCallPermissions
 
@@ -192,7 +220,8 @@ NativeCallParams(
 | `batteryOptimizationExempt` | `bool` | Exempt from battery optimization |
 | `oemAutoStartEnabled` | `bool` | OEM auto-start enabled |
 | `manufacturer` | `String` | Device manufacturer |
-| `model` | `| `model` | `| `model` | | `osVersion` | `String` | OS version string |
+| `model` | `String` | Device model |
+| `osVersion` | `String` | OS version string |
 | `diagnosticInfo` | `Map?` | OEM detection diagnostics |
 | `isFullyReady` | `bool` | All critical permissions granted |
 
@@ -220,7 +249,10 @@ Future<void> _handlePermissions() async {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-                                                                                           onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Not Now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Allow'),
           ),
         ],
@@ -230,33 +262,90 @@ Future<void> _handlePermissions() async {
     // 3. Request only if user agreed
     if (agreed == true) {
       final result = await CallBundle.requestPermissions();
-      print('After request: ${result.notificationPe      print('After request: ${res What `requestPermissions()` does per platform
+      print('After request: ${result.notificationPermission.name}');
+    }
+  }
+}
+```
+
+### What `requestPermissions()` does per platform
 
 | Platform | Action |
 |----------|--------|
 | **Android 13+** | System dialog for `POST_NOTIFICATIONS` |
 | **Android 14+** | Opens Settings for `USE_FULL_SCREEN_INTENT` |
 | **Android < 13** | No dialog needed (auto-granted) |
-| **iOS** | `UNUserNotificationCenter.requestAuthorization| **iOS** | `UNUserNotifican
+| **iOS** | `UNUserNotificationCenter.requestAuthorization()` |
 
-CallBundle handles the **native call UI** — your app handles **push delivery**. Here's the typical flow:
+### Battery Optimization Exemption
 
-```dart
-// In your Firebase messaging setup:
-@pragma(@pragmary-point')
-FutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuoteMessaFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuoteMessaFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuoteMessaFutuFutuFutuCaFutuFutuFutuFutuFutuFutuFutuFutuFutuFuitFutllBundle.cFutuFutuFconst NativFuallConFutuFutuFutuFutuFutuFutuFutuFutuF  andFutuFutndroidCallConfig(phFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFu: IosCallConfig(),
-    ));
-
-    // Show the native incoming call UI
-    await CallBundle.showIncomingCall(NativeCallParams(
-      callId: message.data['callId'] ?? '',
-      callerName: message.data['callerName'] ?? 'Unknown',
-      handle: message.data['handle'] ?? '',
-      callType: NativeCallType.voice,
-      extra:      extra:      extra:      extra:      extra:     ()      extra:      extra:      extra:      extra:      extra:     ()      extriOS, use Vo      extra:      extra:      extra:      extra:      extra:     ()      extrahKit internally:
+Battery optimization (Doze mode) on Android can prevent incoming calls from being delivered reliably:
 
 ```dart
-// Get the V// Get the V// Get the V// Get tserve// Get the V// Get it Call// Get the V// Get the V// Get the V// Get tserve// Get the V// Get it Call// Get the V// Get the V// Get the V// Get tserve// Get the V// Get it Call// Get the V// Get the V// Get the V// Get tserve// Get the V// Get it Call// Get the V// Get the V// Get the V// Get tserve// Get the V// Get it Call// Get the V// Get the V// Get the V// Get tserve// Get the V// Get it Call// Get the V// Get the  PushKit an// Get the V// Get the V// Get the Vhronously (required by iOS).
+final perms = await CallBundle.checkPermissions();
+if (!perms.batteryOptimizationExempt) {
+  final shouldRequest = await showBatteryExplanationDialog();
+  if (shouldRequest) {
+    final exempt = await CallBundle.requestBatteryOptimizationExemption();
+    if (!exempt) {
+      // System dialog shown — re-check after user returns
+      final newPerms = await CallBundle.checkPermissions();
+      print('Exempt: ${newPerms.batteryOptimizationExempt}');
+    }
+  }
+}
+```
+
+| Platform | `checkPermissions()` | `requestBatteryOptimizationExemption()` |
+|----------|---------------------|----------------------------------------|
+| Android 23+ | `PowerManager.isIgnoringBatteryOptimizations()` | Opens `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` |
+| Android < 23 | Returns `true` | Returns `true` |
+| iOS | Returns `true` | Returns `true` (not applicable) |
+
+---
+
+## FCM Integration
+
+CallBundle handles the **native call UI** — your app handles **push delivery**:
+
+```dart
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await CallBundle.configure(const NativeCallConfig(
+    appName: 'MyApp',
+    android: AndroidCallConfig(phoneAccountLabel: 'MyApp Calls'),
+    ios: IosCallConfig(),
+  ));
+
+  await CallBundle.showIncomingCall(NativeCallParams(
+    callId: message.data['callId'] ?? '',
+    callerName: message.data['callerName'] ?? 'Unknown',
+    handle: message.data['handle'] ?? '',
+    callType: NativeCallType.voice,
+    extra: message.data,
+    android: const AndroidCallParams(),
+    ios: const IosCallParams(),
+  ));
+}
+```
+
+---
+
+## iOS VoIP Push (PushKit)
+
+On iOS, use VoIP pushes for the most reliable incoming call experience. The plugin handles PushKit internally and reports the incoming call to CallKit synchronously (required by iOS).
+
+```dart
+// Get the VoIP token to register with your server
+final token = await CallBundle.getVoipToken();
+if (token != null) {
+  await registerTokenWithServer(token);
+}
+```
+
+For setting up VoIP push certificates (PEM file creation, APNs configuration), see the [callbundle_ios README — VoIP Certificate Setup](https://pub.dev/packages/callbundle_ios).
 
 ---
 
@@ -264,34 +353,33 @@ FutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuFutuoteMessaFutuFutuFutuFutuFutu
 
 When the app is **killed** and a user taps Accept on a notification:
 
-### Flow (Android)
+### Android Flow
 
 ```
-1. User ta1. User ta1. User ta1. User ta1. User ta1.eiver.onReceive() fires
-3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plugin ali3. If plored accept event delivered via onEvent stream
+1. User taps Accept on notification
+2. CallActionReceiver.onReceive() fires
+3. If plugin alive → event delivered immediately via onEvent
+4. If plugin null → PendingCallStore.savePendingAccept()
+5. App restarts → configure() → deliverPendingEvents() → event delivered
 ```
 
-### Flow (iOS)
+### iOS Flow
 
 ```
 1. VoIP push arrives → PushKit wakes app
 2. reportNewIncomingCall() called synchronously
 3. User taps Accept → CallKit delegate fires
 4. If Dart ready → event sent immediately
-5. If Dart not ready → CallStore.savePendingAccept() (UserDefaults.synchronize)
-6. Dart calls CallBundle.configure()
-7. deliverPendingEvents() delivers stored event
+5. If Dart not ready → CallStore.savePendingAccept()
+6. Dart calls configure() → deliverPendingEvents() → event delivered
 ```
 
-**No hardcoded delays.** Events are delivered as soon as `configure()` completes, regardless of device speed.
-
-### Handling cold-start in your app
+**No hardcoded delays.** Events are delivered as soon as `configure()` completes.
 
 ```dart
 // Always listen BEFORE configure to catch cold-start events
 CallBundle.onEvent.listen((event) {
   if (event.type == NativeCallEventType.accepted) {
-    // This fires for both live accepts AND cold-start accepts
     connectToVoipRoom(event.callId, event.extra);
   }
 });
@@ -309,15 +397,14 @@ Every event includes `isUserInitiated` to distinguish user actions from programm
 
 ```dart
 CallBundle.onEvent.listen((event) {
-  if (event.ty  if (event.ty  if (event.ty  if (event.ty  ifnt.isUserInitiated) {
+  if (event.type == NativeCallEventType.ended) {
+    if (event.isUserInitiated) {
       // User tapped "End Call" on native UI
-      // → You need to disconnect your VoIP session
       disconnectRoom(event.callId);
       notifyServer(event.callId, 'ended_by_user');
     } else {
       // Your code called CallBundle.endCall()
-      // → VoIP disconnect already handled by your code
-      // → No action needed, avoid double-disconnect
+      // No action needed — avoid double-disconnect
     }
   }
 });
@@ -325,24 +412,29 @@ CallBundle.onEvent.listen((event) {
 
 This eliminates the `_isEndingCallKitProgrammatically` flag pattern.
 
-### Typical complete event handler
+### Complete event handler
 
 ```dart
-CallCallCallCallCallCallCallCallCallCallCallC(event.type) {
+CallBundle.onEvent.listen((event) {
+  switch (event.type) {
     case NativeCallEventType.incoming:
-      // Call is bei      // Call is bei      // Call is bei      //epareVoipConnection(event.callId);
+      prepareVoipConnection(event.callId);
       break;
-
-    case NativeCallEventType.accepte :
-      // User tapped       // User tapped       // Uscal      // User tapped       // User tapped       // Uscal      // User tapped       // Uase NativeCallEventType.declined:
-      // User tapp      // User tapp      // User tapp      // User tapp      // User tapp      //NativeCallEventType.ended:
-      if (event.isUs      if (event.isUs      if (event.isUs      if (ev      }
+    case NativeCallEventType.accepted:
+      connectToRoom(event.callId, event.extra);
       break;
-
+    case NativeCallEventType.declined:
+      notifyServerCallDeclined(event.callId);
+      break;
+    case NativeCallEventType.ended:
+      if (event.isUserInitiated) {
+        disconnectRoom(event.callId);
+        notifyServer(event.callId, 'ended');
+      }
+      break;
     case NativeCallEventType.missed:
-      // Call timed out / auto-dismissed
-                                                  break;
-
+      showMissedCallNotification(event.callId);
+      break;
     default:
       break;
   }
@@ -357,18 +449,74 @@ CallCallCallCallCallCallCallCallCallCallCallC(event.type) {
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `phoneAccountLabel` | `String?` | `null` | TelecomManager registration label |
-| `notificationChannelName` | `Stri| `notificationChannelName` | `Stri| io| `notificationChannelName` | `Stri| `notificationChannelName` | `Stri| io| `notificationCcation fallback |
-| `ringto| `ringto| `ringto| `ringto| `ringto| Custom ringtone URI |
+| `phoneAccountLabel` | `String` | **Required** | TelecomManager registration label |
+| `notificationChannelName` | `String?` | `null` | Notification channel display name |
+| `notificationChannelId` | `String?` | `null` | Custom notification channel ID |
+| `useTelecomManager` | `bool` | `true` | Use ConnectionService + TelecomManager |
+| `oemAdaptiveMode` | `bool` | `true` | Auto-detect budget OEMs |
 
 ### IosCallConfig
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `supportsVideo` | `bool` | `false` | Enable vi| `supportsVideo` | `bool` | `false` | Enable vi| `supportsVideo` | `bool` | `false` | Enable vi| `supportsVidoup` | `int` | `1` | Max calls per group |
-| `includesCallsInRecents` | `bool` | `true` | Show in Phone app R|cents |
+| `supportsVideo` | `bool` | `false` | Enable video call support |
+| `maximumCallGroups` | `int` | `1` | Max concurrent call groups |
+| `maximumCallsPerCallGroup` | `int` | `1` | Max calls per group |
+| `includesCallsInRecents` | `bool` | `true` | Show in Phone app Recents |
 | `iconTemplateImageName` | `String?` | `null` | Custom CallKit icon asset |
 | `ringtoneSound` | `String?` | `null` | Custom ringtone filename |
+
+---
+
+## Background Reject (Killed State)
+
+When the user declines a call from the notification while the app is **killed**, the Dart isolate is unavailable. `BackgroundRejectConfig` enables a **direct native HTTP request** from Kotlin, bypassing Dart entirely:
+
+```dart
+await CallBundle.configure(NativeCallConfig(
+  appName: 'MyApp',
+  backgroundReject: BackgroundRejectConfig(
+    urlPattern: 'https://api.example.com/v1/api/calls/{callId}/reject',
+    httpMethod: 'PUT',
+    authStorageKey: 'access_token',
+    headers: {'X-Call-Id': '{callId}'},
+    body: '{"reason": "user_declined"}',
+    refreshToken: RefreshTokenConfig(
+      url: 'https://api.example.com/v1/auth/refresh-token',
+      refreshTokenKey: 'refresh_token',
+      bodyTemplate: '{"refreshToken": "{refreshToken}"}',
+      accessTokenJsonPath: 'data.accessToken',
+      refreshTokenJsonPath: 'data.refreshToken',
+    ),
+  ),
+  android: const AndroidCallConfig(phoneAccountLabel: 'MyApp'),
+  ios: const IosCallConfig(),
+));
+```
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `urlPattern` | `String` | **Required** | Full URL with `{key}` placeholders |
+| `httpMethod` | `String` | `'PUT'` | HTTP method |
+| `authStorageKey` | `String?` | `null` | Key in `flutter_secure_storage` for Bearer token |
+| `authKeyPrefix` | `String?` | `null` | Custom key prefix for `flutter_secure_storage` |
+| `headers` | `Map<String, String>` | `{}` | Additional request headers |
+| `body` | `String?` | `null` | Request body (supports `{key}` placeholders) |
+
+### Dynamic Placeholders
+
+| Placeholder | Description |
+|---|---|
+| `{callId}` | Unique call identifier |
+| `{callerName}` | Display name of the caller |
+| `{callType}` | Type of call (voice, video) |
+| `{handle}` | Phone number or SIP address |
+| `{uuid}` | Auto-generated UUID per request |
+| *any custom key* | Any extra from the notification |
+
+> **iOS:** Not needed — CallKit/PushKit keep the app alive during calls.
+
+For detailed background reject and token refresh docs, see the [callbundle_android README](https://pub.dev/packages/callbundle_android).
 
 ---
 
@@ -398,7 +546,7 @@ await CallBundle.endCall('outgoing-123');
 ```dart
 final calls = await CallBundle.getActiveCalls();
 for (final call in calls) {
-  print('${call.callerName} — ${call.state}');
+  print('${call.callerName} — ${call.state.name}');
 }
 ```
 

@@ -1,3 +1,7 @@
+## 1.0.10
+
+* Documentation rewrite — VoIP certificate setup (PEM file), PushKit integration, CallKit architecture, audio session, and cold-start docs.
+
 ## 1.0.9
 
 * **Fix: `reportCallConnected()` was ending the call immediately** — removed destructive `reportCall(with:endedAt:reason:.remoteEnded)` that killed the CallKit audio session right after the user accepted.

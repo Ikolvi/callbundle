@@ -177,6 +177,30 @@ class CallBundle {
     return _platform.requestPermissions();
   }
 
+  /// Requests battery optimization exemption from the system.
+  ///
+  /// On Android, opens the system dialog asking the user to exempt
+  /// this app from Doze mode battery restrictions. Critical for
+  /// reliable incoming call delivery when the device is idle.
+  ///
+  /// On iOS, returns `true` immediately (not applicable).
+  ///
+  /// Returns `true` if already exempt. Returns `false` after showing
+  /// the dialog — re-check with [checkPermissions] when the app resumes.
+  ///
+  /// ```dart
+  /// // Show custom explanation first
+  /// final exempt = await CallBundle.requestBatteryOptimizationExemption();
+  /// if (!exempt) {
+  ///   // Dialog shown — check again after resume
+  ///   final perms = await CallBundle.checkPermissions();
+  ///   print('Exempt: ${perms.batteryOptimizationExempt}');
+  /// }
+  /// ```
+  static Future<bool> requestBatteryOptimizationExemption() {
+    return _platform.requestBatteryOptimizationExemption();
+  }
+
   /// Returns the current VoIP push token (iOS only).
   ///
   /// Returns `null` on Android or if the token hasn't been received yet.

@@ -112,8 +112,22 @@ extension PushKitHandler: PKPushRegistryDelegate {
         }
 
         let uuid = uuidFromString(callId)
+
+        // Store call data in callStore BEFORE reporting to CallKit.
+        // This ensures the data is available if the user answers immediately
+        // (CXAnswerCallAction can fire before Dart's handleShowIncomingCall runs).
+        let pushExtra: [String: Any] = [
+            "callerName": callerName,
+            "handle": handle,
+            "hasVideo": hasVideo,
+        ]
+        (CallBundlePlugin.shared as? CallBundlePlugin)?.callStoreForPush?.addCall(
+            callId: callId, callerName: callerName, handle: handle, extra: pushExtra
+        )
+
         callKitController.reportIncomingCall(
             uuid: uuid,
+            callId: callId,
             handle: handle,
             handleType: .generic,
             callerName: callerName,
@@ -152,7 +166,9 @@ extension PushKitHandler: PKPushRegistryDelegate {
         if let uuid = UUID(uuidString: string) {
             return uuid
         }
-        let data = string.data(using: .utf8)!
+        guard let data = string.data(using: .utf8) else {
+            return UUID() // Fallback: random UUID if encoding somehow fails
+        }
         var hash = [UInt8](repeating: 0, count: 16)
         data.withUnsafeBytes { bytes in
             for (i, byte) in bytes.enumerated() {

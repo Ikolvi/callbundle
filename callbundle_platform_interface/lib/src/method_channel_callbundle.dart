@@ -88,9 +88,16 @@ class MethodChannelCallBundle extends CallBundlePlatform {
   /// - `onReady`: Completes the [onReady] future.
   void _ensureHandlerRegistered() {
     if (_isHandlerRegistered) return;
-    _isHandlerRegistered = true;
 
-    methodChannel.setMethodCallHandler(_handleNativeCall);
+    try {
+      methodChannel.setMethodCallHandler(_handleNativeCall);
+      _isHandlerRegistered = true;
+    } catch (e) {
+      // The binary messenger may not be initialized yet (happens when
+      // the plugin is registered before WidgetsFlutterBinding.ensureInitialized).
+      // The handler will be registered on the next call (e.g., configure, showIncomingCall).
+      debugPrint('CallBundle: Deferred handler registration (binding not ready): $e');
+    }
   }
 
   /// Handles incoming method calls from the native side.
@@ -238,6 +245,14 @@ class MethodChannelCallBundle extends CallBundlePlatform {
     return NativeCallPermissions.fromMap(
       Map<String, dynamic>.from(result),
     );
+  }
+
+  @override
+  Future<bool> requestBatteryOptimizationExemption() async {
+    final result = await methodChannel.invokeMethod<bool>(
+      'requestBatteryOptimizationExemption',
+    );
+    return result ?? false;
   }
 
   @override

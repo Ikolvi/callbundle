@@ -34,13 +34,47 @@ class CallStore {
                 startedAt: Date(),
                 extra: extra ?? [:]
             )
+            NSLog("[CallBundle] CallStore.addCall: key='\(callId)', extraCount=\(extra?.count ?? 0), totalCalls=\(activeCalls.count)")
+        }
+    }
+
+    /// Adds a call if it doesn't exist, or updates (merges) extra data if it does.
+    ///
+    /// This handles the PushKit → FCM race condition:
+    /// - PushKit stores a basic entry (callerName, handle only).
+    /// - FCM/Dart later calls handleShowIncomingCall with full extra (8 keys).
+    /// - This method merges the richer data into the existing entry.
+    func addOrUpdateCall(callId: String, callerName: String, handle: String, extra: [String: Any]? = nil) {
+        queue.sync {
+            if var existing = activeCalls[callId] {
+                // Merge new extra into existing extra (new values override)
+                if let newExtra = extra, !newExtra.isEmpty {
+                    for (key, value) in newExtra {
+                        existing.extra[key] = value
+                    }
+                    activeCalls[callId] = existing
+                }
+                NSLog("[CallBundle] CallStore.addOrUpdateCall: UPDATED key='\(callId)', mergedExtraCount=\(existing.extra.count)")
+            } else {
+                activeCalls[callId] = CallInfo(
+                    callId: callId,
+                    callerName: callerName,
+                    handle: handle,
+                    state: "incoming",
+                    startedAt: Date(),
+                    extra: extra ?? [:]
+                )
+                NSLog("[CallBundle] CallStore.addOrUpdateCall: NEW key='\(callId)', extraCount=\(extra?.count ?? 0)")
+            }
         }
     }
 
     /// Returns a specific call's metadata, or nil if not found.
     func getCall(callId: String) -> CallInfo? {
         return queue.sync {
-            activeCalls[callId]
+            let call = activeCalls[callId]
+            NSLog("[CallBundle] CallStore.getCall: key='\(callId)', found=\(call != nil), extraCount=\(call?.extra.count ?? -1), storedKeys=\(Array(activeCalls.keys))")
+            return call
         }
     }
 

@@ -152,6 +152,27 @@ abstract class CallBundlePlatform extends PlatformInterface {
     throw UnimplementedError('requestPermissions() has not been implemented.');
   }
 
+  /// Requests battery optimization exemption from the system.
+  ///
+  /// On Android, this opens the system dialog asking the user to
+  /// disable battery optimization for this app (Doze mode whitelist).
+  /// This is critical for reliable incoming call delivery.
+  ///
+  /// On iOS, returns `true` immediately (no battery optimization concept).
+  ///
+  /// Returns `true` if already exempt. Returns `false` after launching
+  /// the dialog — the app should re-check with [checkPermissions] after
+  /// the user returns from the dialog.
+  ///
+  /// This is intentionally separate from [requestPermissions] so the
+  /// app can control the UX — e.g., show a custom explanation before
+  /// the system prompt.
+  Future<bool> requestBatteryOptimizationExemption() {
+    throw UnimplementedError(
+      'requestBatteryOptimizationExemption() has not been implemented.',
+    );
+  }
+
   /// Returns the current VoIP push token (iOS only).
   ///
   /// Returns `null` on Android or if the token hasn't been received yet.

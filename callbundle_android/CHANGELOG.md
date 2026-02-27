@@ -1,3 +1,7 @@
+## 1.0.13
+
+* Documentation rewrite — clean formatting, OEM-adaptive notifications, background reject, token refresh, ProGuard, and battery optimization docs.
+
 ## 1.0.12
 
 * **Fix: Background FCM engine hijacking main plugin instance** — `onAttachedToEngine` now preserves the configured main instance so `CallActionReceiver` sends through the active MethodChannel instead of storing pending.

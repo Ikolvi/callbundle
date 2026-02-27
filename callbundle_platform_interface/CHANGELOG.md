@@ -1,3 +1,7 @@
+## 1.0.9
+
+* Documentation rewrite — clean formatting, split docs across packages, data model reference.
+
 ## 1.0.8
 
 * Version bump to align with Android & iOS bug fixes.

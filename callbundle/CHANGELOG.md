@@ -1,3 +1,7 @@
+## 1.0.13
+
+* Documentation rewrite — clean formatting, full API reference, PushKit/PEM guide link, FCM integration, permissions, background reject, cold-start handling.
+
 ## 1.0.12
 
 * **Fix: Call accept across all app states** — comprehensive fix for background, killed, and lock screen scenarios.

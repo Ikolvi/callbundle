@@ -20,6 +20,8 @@ export 'src/callbundle_api.dart';
 export 'package:callbundle_platform_interface/callbundle_platform_interface.dart'
     show
         NativeCallConfig,
+        BackgroundRejectConfig,
+        RefreshTokenConfig,
         AndroidCallConfig,
         IosCallConfig,
         NativeCallParams,

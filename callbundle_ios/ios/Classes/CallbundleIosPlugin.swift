@@ -28,12 +28,20 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
     private var missedCallManager: MissedCallNotificationManager?
     private var isReady = false
 
+    /// Monotonically increasing event ID for Dart-side deduplication.
+    private var eventIdCounter: Int = 0
+
     /// Singleton for access from PushKit callbacks (which fire before Flutter engine is ready).
     static var shared: CallBundlePlugin?
 
     /// Exposes the CallKit controller for PushKit handler access.
     var callKitControllerForPush: CallKitController? {
         return callKitController
+    }
+
+    /// Exposes the call store for PushKit handler access.
+    var callStoreForPush: CallStore? {
+        return callStore
     }
 
     // MARK: - Plugin Registration
@@ -83,6 +91,9 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             handleCheckPermissions(result: result)
         case "requestPermissions":
             handleRequestPermissions(result: result)
+        case "requestBatteryOptimizationExemption":
+            // Battery optimization is an Android concept — always exempt on iOS
+            result(true)
         case "getVoipToken":
             handleGetVoipToken(result: result)
         case "dispose":
@@ -159,22 +170,35 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             cxHandleType = .generic
         }
 
+        // Store call data BEFORE reporting to CallKit so it's available
+        // immediately when the user answers (CXAnswerCallAction can fire
+        // very quickly after reportNewIncomingCall).
+        let extra = args["extra"] as? [String: Any]
+        NSLog("[CallBundle] handleShowIncomingCall: callId=\(callId), callerName=\(callerName), extraKeys=\(extra?.keys.sorted() ?? []), extraCount=\(extra?.count ?? 0)")
+        // Use addOrUpdateCall so that if PushKit already stored a basic entry,
+        // the richer extra from Dart is merged in rather than creating a duplicate.
+        callStore?.addOrUpdateCall(callId: callId, callerName: callerName, handle: handle, extra: extra)
+
         callKitController?.reportIncomingCall(
             uuid: uuidFromString(callId),
+            callId: callId,
             handle: handle,
             handleType: cxHandleType,
             callerName: callerName,
             hasVideo: hasVideo
         ) { [weak self] error in
             if let error = error {
+                // DO NOT remove from callStore here.
+                // If PushKit already reported this call, the second reportIncomingCall
+                // will fail, but the call is still valid and the user may answer it.
+                // Removing here would destroy the extra data needed by sendCallEvent.
+                NSLog("[CallBundle] handleShowIncomingCall: reportIncomingCall error (call may already exist via PushKit): \(error.localizedDescription)")
                 result(FlutterError(
                     code: "INCOMING_CALL_ERROR",
                     message: error.localizedDescription,
                     details: nil
                 ))
             } else {
-                let extra = args["extra"] as? [String: Any]
-                self?.callStore?.addCall(callId: callId, callerName: callerName, handle: handle, extra: extra)
                 result(nil)
             }
         }
@@ -209,6 +233,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
 
         callKitController?.startOutgoingCall(
             uuid: uuidFromString(callId),
+            callId: callId,
             handle: handle,
             handleType: cxHandleType,
             callerName: callerName,
@@ -347,6 +372,8 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             resolvedExtra = callStore?.getCall(callId: callId)?.extra
         }
 
+        NSLog("[CallBundle] sendCallEvent: type=\(type), callId=\(callId), extraKeys=\(resolvedExtra?.keys.sorted() ?? []), isReady=\(isReady)")
+
         guard isReady else {
             // Store as pending if not ready (cold-start scenario)
             if type == "accepted" {
@@ -360,6 +387,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             "callId": callId,
             "isUserInitiated": isUserInitiated,
             "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
+            "eventId": nextEventId(),
         ]
 
         if let resolvedExtra = resolvedExtra, !resolvedExtra.isEmpty {
@@ -402,6 +430,15 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         }
     }
 
+    // MARK: - Event ID
+
+    /// Returns the next monotonically increasing event ID.
+    /// Thread-safe via OSAtomicIncrement (called from multiple queues).
+    private func nextEventId() -> Int {
+        eventIdCounter += 1
+        return eventIdCounter
+    }
+
     // MARK: - Utilities
 
     /// Converts a string callId to a deterministic UUID.
@@ -412,7 +449,9 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             return uuid
         }
         // Create deterministic UUID from arbitrary string
-        let data = string.data(using: .utf8)!
+        guard let data = string.data(using: .utf8) else {
+            return UUID() // Fallback: random UUID if encoding somehow fails
+        }
         var hash = [UInt8](repeating: 0, count: 16)
         data.withUnsafeBytes { bytes in
             for (i, byte) in bytes.enumerated() {

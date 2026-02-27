@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
+import android.os.PowerManager
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
@@ -407,6 +408,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             "getActiveCalls" -> handleGetActiveCalls(result)
             "checkPermissions" -> handleCheckPermissions(result)
             "requestPermissions" -> handleRequestPermissions(result)
+            "requestBatteryOptimizationExemption" -> handleRequestBatteryOptimization(result)
             "getVoipToken" -> handleGetVoipToken(result)
             "dispose" -> handleDispose(result)
             else -> result.notImplemented()
@@ -451,6 +453,14 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             // Initialize notification helper
             notificationHelper = NotificationHelper(context, appName)
             notificationHelper?.ensureNotificationChannel()
+
+            // Store background reject config (BackgroundRejectConfig)
+            // so BackgroundCallRejectHelper can make native HTTP calls
+            // when the user declines in killed state.
+            val backgroundReject = configMap["backgroundReject"] as? Map<*, *>
+            if (backgroundReject != null) {
+                BackgroundCallRejectHelper.storeConfig(context, backgroundReject)
+            }
 
             isConfigured = true
 
@@ -751,7 +761,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             "model" to Build.MODEL,
             "osVersion" to Build.VERSION.SDK_INT.toString(),
             "phoneAccountEnabled" to true,
-            "batteryOptimizationExempt" to false,
+            "batteryOptimizationExempt" to isBatteryOptimizationExempt(),
             "diagnosticInfo" to mapOf(
                 "isBudgetOem" to (oemDetector?.isBudgetOem() ?: false),
                 "oemStrategy" to (oemDetector?.getRecommendedStrategy() ?: "standard")
@@ -778,6 +788,63 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         }
 
         return permissionInfo
+    }
+
+    /**
+     * Checks if the app is exempt from battery optimization (Doze mode).
+     *
+     * Uses [PowerManager.isIgnoringBatteryOptimizations] (API 23+).
+     * On API < 23, returns `true` (Doze didn't exist).
+     */
+    private fun isBatteryOptimizationExempt(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            ?: return false
+        return pm.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    /**
+     * Handles the `requestBatteryOptimizationExemption` MethodChannel call.
+     *
+     * Shows the system dialog asking the user to disable battery
+     * optimization for this app. This is a separate method from
+     * [handleRequestPermissions] so the app can control the UX —
+     * e.g., show a custom explanation dialog before prompting.
+     *
+     * Returns `true` if already exempt, or `false` after launching
+     * the system dialog (the user may or may not grant it).
+     */
+    private fun handleRequestBatteryOptimization(result: Result) {
+        try {
+            if (isBatteryOptimizationExempt()) {
+                result.success(true)
+                return
+            }
+
+            val currentActivity = activity
+            if (currentActivity == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                result.success(false)
+                return
+            }
+
+            try {
+                @SuppressWarnings("BatteryLife")
+                val intent = Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:${context.packageName}")
+                )
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                currentActivity.startActivity(intent)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to request battery optimization exemption", e)
+            }
+
+            // Return false — the dialog is shown but user hasn't responded yet.
+            // App should re-check with checkPermissions() after resuming.
+            result.success(false)
+        } catch (e: Exception) {
+            result.error("BATTERY_OPT_ERROR", e.message, e.stackTraceToString())
+        }
     }
 
     // region PluginRegistry.RequestPermissionsResultListener
@@ -995,22 +1062,43 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             ?: intentExtra
             ?: emptyMap<String, Any>()
 
-        if (isConfigured) {
-            // Main engine is alive and listening — send directly
-            Log.d(TAG, "onCallDeclined: sending declined event (extra keys: ${extra.keys})")
-            sendCallEvent(
-                type = "declined",
-                callId = callId,
-                isUserInitiated = true,
-                extra = extra
-            )
-        } else {
-            // Cold-start or background engine: persist for delivery later.
-            // The notification is already cancelled and ringtone stopped
-            // above. The API reject will happen when configure() delivers
-            // pending events on next app start.
+        // Always send the event regardless of isConfigured.
+        //
+        // When isConfigured=true: the main engine's Dart isolate receives
+        //   it and IncomingCallHandlerService calls the reject API.
+        //
+        // When isConfigured=false (killed state): the background FCM
+        //   engine's Dart isolate may still be alive with a listener
+        //   set up by _waitForCallActionInBackground(). If it IS alive,
+        //   the listener catches the decline and calls the reject API
+        //   immediately from the background isolate. If the background
+        //   engine is DEAD (channel.invokeMethod fails), the pending
+        //   store below ensures the reject happens on next app start.
+        Log.d(TAG, "onCallDeclined: sending declined event (extra keys: ${extra.keys}, isConfigured=$isConfigured)")
+        sendCallEvent(
+            type = "declined",
+            callId = callId,
+            isUserInitiated = true,
+            extra = extra
+        )
+
+        if (!isConfigured) {
+            // Also persist as fallback — if the background engine is dead,
+            // sendCallEvent above would fail silently. The pending decline
+            // is delivered when configure() runs on next app start.
             pendingCallStore?.savePendingDecline(callId, extra)
-            Log.d(TAG, "onCallDeclined: Stored pending decline for callId=$callId (isConfigured=false)")
+            Log.d(TAG, "onCallDeclined: Also stored pending decline for callId=$callId (fallback)")
+
+            // CRITICAL: Make a direct native HTTP call to reject the call
+            // immediately. This bypasses Dart entirely and ensures the
+            // caller side sees the rejection within seconds, even when
+            // the Dart isolate is not available.
+            val callData = mutableMapOf("callId" to callId)
+            for ((key, value) in extra) {
+                val k = key?.toString() ?: continue
+                callData[k] = value?.toString() ?: ""
+            }
+            BackgroundCallRejectHelper.rejectCall(context, callData)
         }
 
         callStateManager?.removeCall(callId)

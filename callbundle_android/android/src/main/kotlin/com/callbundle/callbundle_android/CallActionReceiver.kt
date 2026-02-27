@@ -142,6 +142,14 @@ class CallActionReceiver : BroadcastReceiver() {
                         declineMap[key] = declineExtraForStore.getString(key) ?: ""
                     }
                     PendingCallStore(context).savePendingDecline(callId, declineMap)
+
+                    // CRITICAL: Make native HTTP reject call immediately.
+                    // Don't wait for the app to start — the caller needs
+                    // to see the rejection now.
+                    // Pass all available call data for generic placeholder resolution.
+                    val callData = mutableMapOf("callId" to callId)
+                    declineMap.forEach { (key, value) -> callData[key] = value.toString() }
+                    BackgroundCallRejectHelper.rejectCall(context, callData)
                 }
             }
             ACTION_END -> {
@@ -161,6 +169,9 @@ class CallActionReceiver : BroadcastReceiver() {
                     androidx.core.app.NotificationManagerCompat.from(context)
                         .cancel(callId.hashCode())
                     PendingCallStore(context).savePendingDecline(callId, emptyMap<String, Any>())
+
+                    // Same native HTTP reject as DECLINE
+                    BackgroundCallRejectHelper.rejectCall(context, mapOf("callId" to callId))
                 }
             }
             else -> {

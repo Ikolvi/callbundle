@@ -105,6 +105,7 @@ class CallKitController: NSObject {
     /// before the PushKit completion handler returns.
     func reportIncomingCall(
         uuid: UUID,
+        callId: String,
         handle: String,
         handleType: CXHandle.HandleType,
         callerName: String,
@@ -120,13 +121,16 @@ class CallKitController: NSObject {
         update.supportsHolding = false
         update.supportsDTMF = false
 
+        // Store the ORIGINAL callId from Dart (not uuid.uuidString)
+        // so callStore lookups match when resolving extra data.
         queue.sync {
-            uuidToCallId[uuid] = uuid.uuidString.lowercased()
+            uuidToCallId[uuid] = callId
         }
 
         provider?.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             if let error = error {
-                self?.queue.sync {
+                // Use async to avoid deadlocking if completion runs on `queue`
+                self?.queue.async {
                     self?.uuidToCallId.removeValue(forKey: uuid)
                 }
                 completion(error)
@@ -139,6 +143,7 @@ class CallKitController: NSObject {
     /// Starts an outgoing call through CallKit.
     func startOutgoingCall(
         uuid: UUID,
+        callId: String,
         handle: String,
         handleType: CXHandle.HandleType,
         callerName: String,
@@ -149,8 +154,9 @@ class CallKitController: NSObject {
         startCallAction.isVideo = hasVideo
         startCallAction.contactIdentifier = callerName
 
+        // Store the ORIGINAL callId from Dart (not uuid.uuidString)
         queue.sync {
-            uuidToCallId[uuid] = uuid.uuidString.lowercased()
+            uuidToCallId[uuid] = callId
         }
 
         let transaction = CXTransaction(action: startCallAction)
@@ -196,8 +202,8 @@ class CallKitController: NSObject {
         callController.request(transaction) { [weak self] error in
             if let error = error {
                 NSLog("[CallBundle] Failed to end call: \(error.localizedDescription)")
-                // Clean up tracking on failure
-                self?.queue.sync {
+                // Use async to avoid deadlocking if completion runs on `queue`
+                self?.queue.async {
                     self?.programmaticEndUUIDs.remove(uuid)
                 }
             }
@@ -214,14 +220,18 @@ class CallKitController: NSObject {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - Thread-Safe Helpers (call from ANY thread)
 
+    /// Thread-safe UUID→callId lookup. Use from main thread or other threads.
+    /// Do NOT call from CXProviderDelegate methods (use direct dict access instead).
     private func callIdForUUID(_ uuid: UUID) -> String {
         return queue.sync {
             uuidToCallId[uuid] ?? uuid.uuidString.lowercased()
         }
     }
 
+    /// Thread-safe UUID removal. Use from main thread or other threads.
+    /// Do NOT call from CXProviderDelegate methods (use direct dict access instead).
     private func removeUUID(_ uuid: UUID) {
         queue.sync {
             uuidToCallId.removeValue(forKey: uuid)
@@ -230,40 +240,44 @@ class CallKitController: NSObject {
 }
 
 // MARK: - CXProviderDelegate
+//
+// IMPORTANT: All delegate methods below run on `queue` (set via
+// `provider?.setDelegate(self, queue: queue)`). Therefore they MUST
+// access `uuidToCallId` and `programmaticEndUUIDs` DIRECTLY — never
+// via `queue.sync { }`, which would deadlock a serial queue.
 
 extension CallKitController: CXProviderDelegate {
 
     func providerDidReset(_ provider: CXProvider) {
         NSLog("[CallBundle] providerDidReset")
-        queue.sync {
-            uuidToCallId.removeAll()
-            programmaticEndUUIDs.removeAll()
-        }
+        // Already on `queue` — access directly.
+        uuidToCallId.removeAll()
+        programmaticEndUUIDs.removeAll()
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        let callId = callIdForUUID(action.callUUID)
-        NSLog("[CallBundle] CXAnswerCallAction: \(callId)")
+        // Already on `queue` — access directly.
+        let callId = uuidToCallId[action.callUUID] ?? action.callUUID.uuidString.lowercased()
+        NSLog("[CallBundle] CXAnswerCallAction: callId=\(callId), uuid=\(action.callUUID), uuidToCallIdKeys=\(Array(uuidToCallId.keys)), pluginNil=\(plugin == nil)")
 
         plugin?.sendCallEvent(type: "accepted", callId: callId, isUserInitiated: true)
         action.fulfill()
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        let callId = callIdForUUID(action.callUUID)
+        // Already on `queue` — access directly.
+        let callId = uuidToCallId[action.callUUID] ?? action.callUUID.uuidString.lowercased()
 
         // Determine if this end was triggered programmatically by Dart's
         // endCall() or by the user tapping "End" on the native CallKit UI.
-        let isProgrammatic: Bool = queue.sync {
-            programmaticEndUUIDs.remove(action.callUUID) != nil
-        }
+        let isProgrammatic = programmaticEndUUIDs.remove(action.callUUID) != nil
         let isUserInitiated = !isProgrammatic
 
         NSLog("[CallBundle] CXEndCallAction: \(callId) isUserInitiated=\(isUserInitiated)")
 
         plugin?.sendCallEvent(type: "ended", callId: callId, isUserInitiated: isUserInitiated)
 
-        removeUUID(action.callUUID)
+        uuidToCallId.removeValue(forKey: action.callUUID)
         action.fulfill()
 
         // Deactivate audio after call ends
@@ -271,7 +285,8 @@ extension CallKitController: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
-        let callId = callIdForUUID(action.callUUID)
+        // Already on `queue` — access directly.
+        let callId = uuidToCallId[action.callUUID] ?? action.callUUID.uuidString.lowercased()
         NSLog("[CallBundle] CXStartCallAction: \(callId)")
 
         // Configure audio session before the call starts
@@ -282,7 +297,8 @@ extension CallKitController: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXSetMutedCallAction) {
-        let callId = callIdForUUID(action.callUUID)
+        // Already on `queue` — access directly.
+        let callId = uuidToCallId[action.callUUID] ?? action.callUUID.uuidString.lowercased()
         let isMuted = action.isMuted
         NSLog("[CallBundle] CXSetMutedCallAction: \(callId) muted=\(isMuted)")
 
@@ -296,7 +312,8 @@ extension CallKitController: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXSetHeldCallAction) {
-        let callId = callIdForUUID(action.callUUID)
+        // Already on `queue` — access directly.
+        let callId = uuidToCallId[action.callUUID] ?? action.callUUID.uuidString.lowercased()
         let isOnHold = action.isOnHold
         NSLog("[CallBundle] CXSetHeldCallAction: \(callId) held=\(isOnHold)")
 
