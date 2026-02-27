@@ -86,6 +86,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val existing = instance
         if (existing == null || !existing.isConfigured) {
             instance = this
+            if (existing != null) {
+                Log.w(TAG, "onAttachedToEngine: Overriding unconfigured instance ${existing.hashCode()} with ${this.hashCode()}")
+            }
         }
 
         // Initialize core components that are needed immediately
@@ -354,6 +357,21 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
             isConfigured = true
 
+            // CRITICAL: Reclaim the singleton instance.
+            //
+            // Race condition fix: when FCM spawns a background engine
+            // BEFORE configure() is called on the main engine, the
+            // background instance steals `instance` because the main
+            // instance's isConfigured is still false at that point.
+            //
+            // By setting instance=this here, we guarantee the configured
+            // (main engine) instance is always the canonical one that
+            // CallActionReceiver and other static callers use. Events
+            // sent through this instance's channel reach the main Dart
+            // isolate where IncomingCallHandlerService is listening.
+            val previousInstance = instance
+            instance = this
+
             // Deliver any pending cold-start events
             deliverPendingEvents()
 
@@ -361,7 +379,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             sendReadySignal()
 
             result.success(null)
-            Log.d(TAG, "configure: Plugin configured with appName=$appName (instance=${this.hashCode()}, isInstance=${instance == this})")
+            Log.d(TAG, "configure: Plugin configured with appName=$appName (instance=${this.hashCode()}, previousInstance=${previousInstance?.hashCode()}, reclaimed=${previousInstance != this})")
         } catch (e: Exception) {
             Log.e(TAG, "configure: FAILED", e)
             result.error("CONFIGURE_ERROR", e.message, e.stackTraceToString())
@@ -803,8 +821,13 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     /**
      * Handles a user decline action from a notification or TelecomManager.
+     *
+     * @param callId The unique call identifier.
+     * @param intentExtra Optional extra metadata from the notification intent.
+     *   Used as fallback when this instance's [callStateManager] doesn't
+     *   have the call (e.g., call was shown by a background FCM engine).
      */
-    fun onCallDeclined(callId: String) {
+    fun onCallDeclined(callId: String, intentExtra: Map<String, Any>? = null) {
         Log.d(TAG, "onCallDeclined: callId=$callId, isConfigured=$isConfigured, hash=${this.hashCode()}, instanceHash=${instance?.hashCode()})")
         callStateManager?.updateCallState(callId, "ended")
         notificationHelper?.cancelNotification(callId)
@@ -813,7 +836,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         // Dismiss the native IncomingCallActivity if it was showing
         IncomingCallActivity.dismissIfShowing()
 
-        val extra = callStateManager?.getCall(callId)?.extra ?: emptyMap<String, Any>()
+        val extra = callStateManager?.getCall(callId)?.extra
+            ?: intentExtra
+            ?: emptyMap<String, Any>()
         Log.d(TAG, "onCallDeclined: sending declined event (extra keys: ${extra.keys})")
         sendCallEvent(
             type = "declined",

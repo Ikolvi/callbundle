@@ -74,7 +74,18 @@ class CallActionReceiver : BroadcastReceiver() {
             ACTION_DECLINE -> {
                 Log.d(TAG, "onReceive: Decline action for callId=$callId")
                 if (plugin != null) {
-                    plugin.onCallDeclined(callId)
+                    // Extract caller metadata from the notification PendingIntent
+                    // as fallback when callStateManager doesn't have the call
+                    // (e.g., call was shown by a background FCM engine instance).
+                    val declineExtraBundle = intent.getBundleExtra("callExtra")
+                    val declineExtra = if (declineExtraBundle != null) {
+                        mutableMapOf<String, Any>().also { map ->
+                            declineExtraBundle.keySet().forEach { key ->
+                                map[key] = declineExtraBundle.getString(key) ?: ""
+                            }
+                        }
+                    } else null
+                    plugin.onCallDeclined(callId, declineExtra)
                 } else {
                     // App killed: cancel the notification at minimum
                     Log.d(TAG, "onReceive: Plugin null, cancelling notification for declined call")
@@ -85,7 +96,15 @@ class CallActionReceiver : BroadcastReceiver() {
             ACTION_END -> {
                 Log.d(TAG, "onReceive: End action for callId=$callId")
                 if (plugin != null) {
-                    plugin.onCallDeclined(callId)
+                    val endExtraBundle = intent.getBundleExtra("callExtra")
+                    val endExtra = if (endExtraBundle != null) {
+                        mutableMapOf<String, Any>().also { map ->
+                            endExtraBundle.keySet().forEach { key ->
+                                map[key] = endExtraBundle.getString(key) ?: ""
+                            }
+                        }
+                    } else null
+                    plugin.onCallDeclined(callId, endExtra)
                 } else {
                     Log.d(TAG, "onReceive: Plugin null, cancelling notification for ended call")
                     androidx.core.app.NotificationManagerCompat.from(context)
