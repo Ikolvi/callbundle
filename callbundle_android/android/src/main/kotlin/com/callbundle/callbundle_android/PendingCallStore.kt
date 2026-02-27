@@ -3,6 +3,7 @@ package com.callbundle.callbundle_android
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import org.json.JSONObject
 
 /**
  * Persistent storage for cold-start call events.
@@ -182,22 +183,51 @@ class PendingCallStore(context: Context) {
     }
 
     /**
-     * Simple map-to-string serialization using key=value pairs.
-     * For production, consider using JSON serialization.
+     * JSON-based map serialization. Handles values containing any
+     * characters (URLs with = and |, etc.) safely.
      */
     private fun mapToString(map: Map<*, *>): String {
-        return map.entries.joinToString("|") { "${it.key}=${it.value}" }
+        return try {
+            val json = JSONObject()
+            for ((key, value) in map) {
+                json.put(key?.toString() ?: continue, value?.toString() ?: "")
+            }
+            json.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "mapToString: JSON serialization failed, using fallback", e)
+            // Fallback: simple key=value pairs (legacy format)
+            map.entries.joinToString("|") { "${it.key}=${it.value}" }
+        }
     }
 
     /**
-     * Reverse of [mapToString].
+     * Reverse of [mapToString]. Supports both JSON format (new) and
+     * legacy key=value|key=value format for backward compatibility.
      */
     private fun stringToMap(str: String?): Map<String, String> {
         if (str.isNullOrEmpty()) return emptyMap()
-        return str.split("|").mapNotNull { entry ->
-            val parts = entry.split("=", limit = 2)
-            if (parts.size == 2) parts[0] to parts[1] else null
-        }.toMap()
+        return try {
+            // Try JSON format first (new)
+            if (str.startsWith("{")) {
+                val json = JSONObject(str)
+                val result = mutableMapOf<String, String>()
+                val keys = json.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    result[key] = json.optString(key, "")
+                }
+                result
+            } else {
+                // Legacy format: key=value|key=value
+                str.split("|").mapNotNull { entry ->
+                    val parts = entry.split("=", limit = 2)
+                    if (parts.size == 2) parts[0] to parts[1] else null
+                }.toMap()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "stringToMap: Deserialization failed for: $str", e)
+            emptyMap()
+        }
     }
 }
 

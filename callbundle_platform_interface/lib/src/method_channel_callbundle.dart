@@ -145,6 +145,7 @@ class MethodChannelCallBundle extends CallBundlePlatform {
   }
 
   @override
+  @override
   Future<void> configure(NativeCallConfig config) async {
     _ensureHandlerRegistered();
     await methodChannel.invokeMethod<void>('configure', config.toMap());

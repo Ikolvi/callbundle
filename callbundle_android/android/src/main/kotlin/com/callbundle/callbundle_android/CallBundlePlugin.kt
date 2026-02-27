@@ -217,7 +217,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         if (intent?.getStringExtra("action") == "call_accepted") {
             val callId = intent.getStringExtra("callId")
             if (callId != null) {
-                Log.d(TAG, "onAttachedToActivity: call_accepted intent for callId=$callId (isConfigured=$isConfigured)")
+                Log.w(TAG, "onAttachedToActivity: call_accepted intent for callId=$callId isConfigured=$isConfigured hash=${this.hashCode()}")
 
                 // CRITICAL: Apply lock screen flags NOW so the Activity
                 // can show over the lock screen. Without this, the Activity
@@ -241,16 +241,16 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                     // If we saved to PendingCallStore instead, configure()
                     // would never be called again and the event would be
                     // stuck forever.
-                    Log.d(TAG, "onAttachedToActivity: Dart configured, calling onCallAccepted directly")
+                    Log.w(TAG, "onAttachedToActivity: isConfigured=true, calling onCallAccepted directly")
                     onCallAccepted(callId, extra)
                 } else {
                     // Cold-start: save for delivery after configure()
                     // calls deliverPendingEvents().
+                    Log.w(TAG, "onAttachedToActivity: isConfigured=FALSE — saving pending accept for callId=$callId (extraKeys=${extra.keys})")
                     notificationHelper?.cancelNotification(callId)
                     notificationHelper?.stopRingtone()
                     IncomingCallActivity.dismissIfShowing()
                     pendingCallStore?.savePendingAccept(callId, extra)
-                    Log.d(TAG, "onAttachedToActivity: Saved pending accept for callId=$callId")
                 }
             }
 
@@ -309,9 +309,10 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      */
     override fun onNewIntent(intent: Intent): Boolean {
         val action = intent.getStringExtra("action")
+        Log.w(TAG, "onNewIntent: action=$action isConfigured=$isConfigured hash=${this.hashCode()}")
         if (action == "call_accepted") {
             val callId = intent.getStringExtra("callId") ?: return false
-            Log.d(TAG, "onNewIntent: call_accepted for callId=$callId")
+            Log.w(TAG, "onNewIntent: call_accepted for callId=$callId")
 
             // Extract caller metadata from the intent
             val extraBundle = intent.getBundleExtra("callExtra")
@@ -486,9 +487,9 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             sendReadySignal()
 
             result.success(null)
-            Log.d(TAG, "configure: Plugin configured with appName=$appName (instance=${this.hashCode()}, previousInstance=${previousInstance?.hashCode()}, reclaimed=${previousInstance != this})")
+            Log.w(TAG, "configure: SUCCESS appName=$appName isConfigured=$isConfigured instance=${this.hashCode()} previousInstance=${previousInstance?.hashCode()} reclaimed=${previousInstance != this}")
         } catch (e: Exception) {
-            Log.e(TAG, "configure: FAILED", e)
+            Log.e(TAG, "configure: FAILED — isConfigured will remain FALSE, all accept events will be stored in PendingCallStore instead of sent to Dart!", e)
             result.error("CONFIGURE_ERROR", e.message, e.stackTraceToString())
         }
     }
@@ -948,11 +949,17 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             "eventId" to eventId
         )
 
+        Log.w(TAG, "sendCallEvent: SENDING type=$type callId=$callId eventId=$eventId isConfigured=$isConfigured extraKeys=${extra.keys}")
+
         mainHandler.post {
             try {
                 channel.invokeMethod("onCallEvent", eventMap)
-            } catch (e: Exception) {
-                Log.e(TAG, "sendCallEvent: Failed to send event type=$type callId=$callId", e)
+                Log.w(TAG, "sendCallEvent: SUCCESS type=$type callId=$callId eventId=$eventId")
+            } catch (e: Throwable) {
+                // CRITICAL: Catch Throwable (not just Exception) to prevent
+                // silent crashes from R8-optimized code that may throw Error
+                // subclasses like NoSuchMethodError or NoClassDefFoundError.
+                Log.e(TAG, "sendCallEvent: FAILED to send event type=$type callId=$callId eventId=$eventId", e)
             }
         }
     }
@@ -988,6 +995,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      *   have the call (e.g., call was shown by a background FCM engine).
      */
     fun onCallAccepted(callId: String, intentExtra: Map<String, Any>? = null) {
+        Log.w(TAG, "onCallAccepted: START callId=$callId isConfigured=$isConfigured hash=${this.hashCode()} instanceHash=${instance?.hashCode()} hasCallState=${callStateManager?.getCall(callId) != null} hasIntentExtra=${intentExtra != null}")
         callStateManager?.updateCallState(callId, "active", isAccepted = true)
         notificationHelper?.cancelNotification(callId)
         notificationHelper?.stopRingtone()
@@ -999,7 +1007,10 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             ?: intentExtra
             ?: emptyMap<String, Any>()
 
+        Log.w(TAG, "onCallAccepted: extraSource=${if (callStateManager?.getCall(callId)?.extra != null) "callStateManager" else if (intentExtra != null) "intentExtra" else "empty"} extraKeys=${extra.keys}")
+
         if (isConfigured) {
+            Log.w(TAG, "onCallAccepted: isConfigured=true, sending event via sendCallEvent")
             sendCallEvent(
                 type = "accepted",
                 callId = callId,
@@ -1008,8 +1019,8 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             )
         } else {
             // Cold-start: store pending event for delivery after configure()
+            Log.w(TAG, "onCallAccepted: isConfigured=FALSE — storing to PendingCallStore (THIS IS THE BUG if configure() never ran)")
             pendingCallStore?.savePendingAccept(callId, extra)
-            Log.d(TAG, "onCallAccepted: Stored pending accept for callId=$callId")
         }
 
         // Temporarily enable lock screen flags on the main Activity so
@@ -1126,16 +1137,19 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      * Both are single-consumption (cleared after reading).
      */
     private fun deliverPendingEvents() {
+        Log.w(TAG, "deliverPendingEvents: Checking for pending cold-start events...")
         // Deliver pending accept (if any)
         val pendingAccept = pendingCallStore?.consumePendingAccept()
         if (pendingAccept != null) {
-            Log.d(TAG, "deliverPendingEvents: Delivering pending accept for callId=${pendingAccept.callId}")
+            Log.w(TAG, "deliverPendingEvents: DELIVERING pending accept for callId=${pendingAccept.callId} extraKeys=${pendingAccept.extra.keys}")
             sendCallEvent(
                 type = "accepted",
                 callId = pendingAccept.callId,
                 isUserInitiated = true,
                 extra = pendingAccept.extra
             )
+        } else {
+            Log.w(TAG, "deliverPendingEvents: No pending accept")
         }
 
         // Deliver pending decline (if any)
@@ -1145,13 +1159,15 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         // API request so the caller side sees the rejection.
         val pendingDecline = pendingCallStore?.consumePendingDecline()
         if (pendingDecline != null) {
-            Log.d(TAG, "deliverPendingEvents: Delivering pending decline for callId=${pendingDecline.callId}")
+            Log.w(TAG, "deliverPendingEvents: DELIVERING pending decline for callId=${pendingDecline.callId}")
             sendCallEvent(
                 type = "declined",
                 callId = pendingDecline.callId,
                 isUserInitiated = true,
                 extra = pendingDecline.extra
             )
+        } else {
+            Log.w(TAG, "deliverPendingEvents: No pending decline")
         }
     }
 
