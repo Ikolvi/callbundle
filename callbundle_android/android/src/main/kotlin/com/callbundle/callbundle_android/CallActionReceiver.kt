@@ -128,10 +128,20 @@ class CallActionReceiver : BroadcastReceiver() {
                     } else null
                     plugin.onCallDeclined(callId, declineExtra)
                 } else {
-                    // App killed: cancel the notification at minimum
-                    Log.d(TAG, "onReceive: Plugin null, cancelling notification for declined call")
+                    // App killed and plugin is null: cancel notification
+                    // and persist decline for delivery on next app start.
+                    Log.d(TAG, "onReceive: Plugin null, persisting decline and cancelling notification")
                     androidx.core.app.NotificationManagerCompat.from(context)
                         .cancel(callId.hashCode())
+
+                    // Persist decline so the reject API is called when
+                    // the main engine starts and configure() runs.
+                    val declineExtraForStore = intent.getBundleExtra("callExtra")
+                    val declineMap = mutableMapOf<String, Any>()
+                    declineExtraForStore?.keySet()?.forEach { key ->
+                        declineMap[key] = declineExtraForStore.getString(key) ?: ""
+                    }
+                    PendingCallStore(context).savePendingDecline(callId, declineMap)
                 }
             }
             ACTION_END -> {
@@ -147,9 +157,10 @@ class CallActionReceiver : BroadcastReceiver() {
                     } else null
                     plugin.onCallDeclined(callId, endExtra)
                 } else {
-                    Log.d(TAG, "onReceive: Plugin null, cancelling notification for ended call")
+                    Log.d(TAG, "onReceive: Plugin null, persisting end/decline and cancelling notification")
                     androidx.core.app.NotificationManagerCompat.from(context)
                         .cancel(callId.hashCode())
+                    PendingCallStore(context).savePendingDecline(callId, emptyMap<String, Any>())
                 }
             }
             else -> {

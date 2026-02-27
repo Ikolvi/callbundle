@@ -960,6 +960,23 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     /**
      * Handles a user decline action from a notification or TelecomManager.
      *
+     * ## Killed-State Handling
+     *
+     * When the app is killed, the background FCM engine (Instance B) shows
+     * the notification. If the user taps Decline:
+     * - Instance B handles it (may still be alive)
+     * - B.sendCallEvent sends through B's channel → background Dart isolate
+     * - Background isolate has NO IncomingCallHandlerService listener
+     * - Event is silently dropped → caller never sees rejection
+     *
+     * Fix: when `isConfigured=false`, we persist the decline in
+     * [PendingCallStore]. When the main engine starts and [configure] is
+     * called, [deliverPendingEvents] sends the decline → Dart processes
+     * it → reject API is called → caller sees rejection.
+     *
+     * The notification cancellation and ringtone stop happen immediately
+     * (they don't need Dart). Only the API reject is deferred.
+     *
      * @param callId The unique call identifier.
      * @param intentExtra Optional extra metadata from the notification intent.
      *   Used as fallback when this instance's [callStateManager] doesn't
@@ -977,13 +994,25 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         val extra = callStateManager?.getCall(callId)?.extra
             ?: intentExtra
             ?: emptyMap<String, Any>()
-        Log.d(TAG, "onCallDeclined: sending declined event (extra keys: ${extra.keys})")
-        sendCallEvent(
-            type = "declined",
-            callId = callId,
-            isUserInitiated = true,
-            extra = extra
-        )
+
+        if (isConfigured) {
+            // Main engine is alive and listening — send directly
+            Log.d(TAG, "onCallDeclined: sending declined event (extra keys: ${extra.keys})")
+            sendCallEvent(
+                type = "declined",
+                callId = callId,
+                isUserInitiated = true,
+                extra = extra
+            )
+        } else {
+            // Cold-start or background engine: persist for delivery later.
+            // The notification is already cancelled and ringtone stopped
+            // above. The API reject will happen when configure() delivers
+            // pending events on next app start.
+            pendingCallStore?.savePendingDecline(callId, extra)
+            Log.d(TAG, "onCallDeclined: Stored pending decline for callId=$callId (isConfigured=false)")
+        }
+
         callStateManager?.removeCall(callId)
     }
 
@@ -995,19 +1024,45 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      * Delivers any pending cold-start events after configure() is called.
      *
      * This is the deterministic handshake protocol:
-     * 1. Native receives accept event before Dart is ready → stores in PendingCallStore
+     * 1. Native receives accept/decline event before Dart is ready
+     *    → stores in [PendingCallStore]
      * 2. Dart calls configure() → this method delivers stored events
      * 3. No hardcoded delays needed
+     *
+     * ## Accept vs Decline
+     *
+     * - **Accept**: Sends `"accepted"` event → Dart navigates to call screen
+     * - **Decline**: Sends `"declined"` event → Dart calls reject API
+     *   so the caller side stops ringing
+     *
+     * Both are single-consumption (cleared after reading).
      */
     private fun deliverPendingEvents() {
-        val pending = pendingCallStore?.consumePendingAccept()
-        if (pending != null) {
-            Log.d(TAG, "deliverPendingEvents: Delivering pending accept for callId=${pending.callId}")
+        // Deliver pending accept (if any)
+        val pendingAccept = pendingCallStore?.consumePendingAccept()
+        if (pendingAccept != null) {
+            Log.d(TAG, "deliverPendingEvents: Delivering pending accept for callId=${pendingAccept.callId}")
             sendCallEvent(
                 type = "accepted",
-                callId = pending.callId,
+                callId = pendingAccept.callId,
                 isUserInitiated = true,
-                extra = pending.extra
+                extra = pendingAccept.extra
+            )
+        }
+
+        // Deliver pending decline (if any)
+        // This ensures the reject API is called even when the user
+        // declined from a killed-state notification. The notification
+        // and ringtone were already stopped natively; this sends the
+        // API request so the caller side sees the rejection.
+        val pendingDecline = pendingCallStore?.consumePendingDecline()
+        if (pendingDecline != null) {
+            Log.d(TAG, "deliverPendingEvents: Delivering pending decline for callId=${pendingDecline.callId}")
+            sendCallEvent(
+                type = "declined",
+                callId = pendingDecline.callId,
+                isUserInitiated = true,
+                extra = pendingDecline.extra
             )
         }
     }
