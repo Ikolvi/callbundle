@@ -106,6 +106,10 @@ class CallActionReceiver : BroadcastReceiver() {
      * [FLAG_ACTIVITY_SINGLE_TOP], and [FLAG_ACTIVITY_REORDER_TO_FRONT] to
      * resume the existing Activity (or start a new one if killed).
      *
+     * IMPORTANT: Does NOT add "call_accepted" action to avoid triggering
+     * onNewIntent → onCallAccepted a second time (the event was already
+     * sent by the plugin.onCallAccepted() call above).
+     *
      * On Android 10+ (API 29+), this works because the call originates
      * from a user-tapped notification PendingIntent, which grants
      * a temporary exemption from background activity start restrictions.
@@ -121,8 +125,10 @@ class CallActionReceiver : BroadcastReceiver() {
                     Intent.FLAG_ACTIVITY_SINGLE_TOP or
                     Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
                 )
-                launchIntent.putExtra("callId", callId)
-                launchIntent.putExtra("action", "call_accepted")
+                // DO NOT add "call_accepted" action — onCallAccepted was
+                // already called above and sent the event to Dart.
+                // Adding it would cause onNewIntent to fire another
+                // onCallAccepted → duplicate event.
                 context.startActivity(launchIntent)
                 Log.d(TAG, "bringAppToForeground: Launched activity for callId=$callId")
             } else {

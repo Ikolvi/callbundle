@@ -138,10 +138,14 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         if (intent?.getStringExtra("action") == "call_accepted") {
             val callId = intent.getStringExtra("callId")
             if (callId != null) {
-                Log.d(TAG, "onAttachedToActivity: call_accepted intent for callId=$callId")
+                Log.d(TAG, "onAttachedToActivity: call_accepted intent for callId=$callId (isConfigured=$isConfigured)")
 
-                notificationHelper?.cancelNotification(callId)
-                notificationHelper?.stopRingtone()
+                // CRITICAL: Apply lock screen flags NOW so the Activity
+                // can show over the lock screen. Without this, the Activity
+                // starts but stays behind the keyguard — invisible to the user.
+                // This fixes killed+locked state where callStateManager is
+                // empty (fresh start) so the generic isAccepted check above fails.
+                applyLockScreenFlags(binding.activity)
 
                 val extraBundle = intent.getBundleExtra("callExtra")
                 val extra = if (extraBundle != null) {
@@ -152,10 +156,23 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                     }
                 } else emptyMap<String, Any>()
 
-                // Not configured yet (app just starting) — save for
-                // delivery when configure() calls deliverPendingEvents().
-                pendingCallStore?.savePendingAccept(callId, extra)
-                Log.d(TAG, "onAttachedToActivity: Saved pending accept for callId=$callId")
+                if (isConfigured) {
+                    // Dart engine is already running (Activity was destroyed
+                    // but process stayed alive). Send the event directly.
+                    // If we saved to PendingCallStore instead, configure()
+                    // would never be called again and the event would be
+                    // stuck forever.
+                    Log.d(TAG, "onAttachedToActivity: Dart configured, calling onCallAccepted directly")
+                    onCallAccepted(callId, extra)
+                } else {
+                    // Cold-start: save for delivery after configure()
+                    // calls deliverPendingEvents().
+                    notificationHelper?.cancelNotification(callId)
+                    notificationHelper?.stopRingtone()
+                    IncomingCallActivity.dismissIfShowing()
+                    pendingCallStore?.savePendingAccept(callId, extra)
+                    Log.d(TAG, "onAttachedToActivity: Saved pending accept for callId=$callId")
+                }
             }
 
             // Clear the intent extras to prevent re-processing on
@@ -196,24 +213,26 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
     // region NewIntentListener
 
     /**
-     * Safety net: when the Accept notification action (PendingIntent.getActivity)
-     * or [bringAppToForeground] resumes the Activity, Android calls `onNewIntent`.
+     * Called when the Activity receives a new intent via
+     * [PendingIntent.getActivity] from the notification Accept button
+     * or from [IncomingCallActivity.proceedWithAccept].
      *
-     * If the plugin is configured, the accept event is sent immediately.
-     * Otherwise, it's stored in [PendingCallStore] for delivery after configure().
+     * Delegates to [onCallAccepted] for consistent handling across all
+     * accept paths (notification button, IncomingCallActivity, BroadcastReceiver).
+     *
+     * [onCallAccepted] handles:
+     * - Notification cancellation
+     * - Ringtone/vibration stop
+     * - IncomingCallActivity dismissal
+     * - Event delivery to Dart (or PendingCallStore for cold-start)
+     * - Lock screen flags
+     * - Bringing the app to the foreground
      */
     override fun onNewIntent(intent: Intent): Boolean {
         val action = intent.getStringExtra("action")
         if (action == "call_accepted") {
             val callId = intent.getStringExtra("callId") ?: return false
             Log.d(TAG, "onNewIntent: call_accepted for callId=$callId")
-
-            // Cancel the incoming call notification and ringtone
-            notificationHelper?.cancelNotification(callId)
-            notificationHelper?.stopRingtone()
-
-            // Dismiss the native incoming call Activity if it was showing
-            IncomingCallActivity.dismissIfShowing()
 
             // Extract caller metadata from the intent
             val extraBundle = intent.getBundleExtra("callExtra")
@@ -223,21 +242,15 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                         map[key] = extraBundle.getString(key) ?: ""
                     }
                 }
-            } else emptyMap<String, Any>()
+            } else null
 
-            if (isConfigured) {
-                callStateManager?.updateCallState(callId, "active", isAccepted = true)
-                sendCallEvent(
-                    type = "accepted",
-                    callId = callId,
-                    isUserInitiated = true,
-                    extra = extra
-                )
-            } else {
-                // App just starting — save for delivery after configure()
-                pendingCallStore?.savePendingAccept(callId, extra)
-                Log.d(TAG, "onNewIntent: Saved pending accept for callId=$callId")
-            }
+            // Delegate to the centralized accept handler.
+            // This ensures: notification cancelled, ringtone stopped,
+            // event sent to Dart, and app brought to foreground.
+            onCallAccepted(callId, extra)
+
+            // Clear the intent to prevent re-processing on config changes
+            intent.removeExtra("action")
             return true
         }
         return false
