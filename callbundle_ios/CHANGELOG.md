@@ -1,3 +1,10 @@
+## 1.0.8
+
+* Fix incoming call UI not showing when app is in killed state — `CXProvider` now created eagerly in `init()` instead of waiting for `configure()`.
+* Store and thread `extra` metadata through `CallStore` for all call types.
+* `sendCallEvent` auto-resolves `extra` from `CallStore` when not explicitly provided.
+* `savePendingAccept` / `consumePendingAccept` now preserve `extra` for cold-start event delivery.
+
 ## 1.0.7
 
 * Version bump to align with pub.dev score fixes.

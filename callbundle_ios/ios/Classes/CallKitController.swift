@@ -36,6 +36,19 @@ class CallKitController: NSObject {
     init(plugin: CallBundlePlugin) {
         self.plugin = plugin
         super.init()
+
+        // Create CXProvider eagerly with a default configuration.
+        // This is CRITICAL for killed-state incoming calls: the background
+        // FCM handler or PushKit calls showIncomingCall() / reportIncomingCall()
+        // before configure() runs. Without a provider, those calls silently no-op.
+        // configure() will update the provider's configuration later.
+        let defaultConfig = CXProviderConfiguration(localizedName: "Call")
+        defaultConfig.supportsVideo = true
+        defaultConfig.maximumCallGroups = 1
+        defaultConfig.maximumCallsPerCallGroup = 1
+        defaultConfig.supportedHandleTypes = [.generic, .phoneNumber, .emailAddress]
+        provider = CXProvider(configuration: defaultConfig)
+        provider?.setDelegate(self, queue: queue)
     }
 
     // MARK: - Configuration
@@ -54,7 +67,7 @@ class CallKitController: NSObject {
     ) {
         self.includesCallsInRecents = includesCallsInRecents
 
-        let config = CXProviderConfiguration()
+        let config = CXProviderConfiguration(localizedName: appName)
         config.maximumCallGroups = maximumCallGroups
         config.maximumCallsPerCallGroup = maximumCallsPerCallGroup
         config.supportsVideo = supportsVideo
@@ -70,12 +83,8 @@ class CallKitController: NSObject {
 
         config.supportedHandleTypes = [.generic, .phoneNumber, .emailAddress]
 
-        if provider == nil {
-            provider = CXProvider(configuration: config)
-            provider?.setDelegate(self, queue: queue)
-        } else {
-            provider?.configuration = config
-        }
+        // Provider was already created in init(), just update configuration
+        provider?.configuration = config
     }
 
     // MARK: - Call Operations

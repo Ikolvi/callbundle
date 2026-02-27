@@ -18,20 +18,29 @@ class CallStore {
 
     private static let pendingAcceptKey = "com.callbundle.pending_accept"
     private static let pendingAcceptTimestampKey = "com.callbundle.pending_accept_ts"
+    private static let pendingAcceptExtraKey = "com.callbundle.pending_accept_extra"
     private static let pendingTTL: TimeInterval = 60 // 60 seconds
 
     // MARK: - Active Call Management
 
     /// Adds a call to the active call store.
-    func addCall(callId: String, callerName: String, handle: String) {
+    func addCall(callId: String, callerName: String, handle: String, extra: [String: Any]? = nil) {
         queue.sync {
             activeCalls[callId] = CallInfo(
                 callId: callId,
                 callerName: callerName,
                 handle: handle,
                 state: "incoming",
-                startedAt: Date()
+                startedAt: Date(),
+                extra: extra ?? [:]
             )
+        }
+    }
+
+    /// Returns a specific call's metadata, or nil if not found.
+    func getCall(callId: String) -> CallInfo? {
+        return queue.sync {
+            activeCalls[callId]
         }
     }
 
@@ -60,13 +69,17 @@ class CallStore {
     func getAllCalls() -> [[String: Any]] {
         return queue.sync {
             activeCalls.values.map { call in
-                [
+                var dict: [String: Any] = [
                     "callId": call.callId,
                     "callerName": call.callerName,
                     "handle": call.handle,
                     "state": call.state,
                     "startedAt": Int64(call.startedAt.timeIntervalSince1970 * 1000),
                 ]
+                if !call.extra.isEmpty {
+                    dict["extra"] = call.extra
+                }
+                return dict
             }
         }
     }
@@ -79,28 +92,39 @@ class CallStore {
     /// engine may not be ready yet. This persists the accept event
     /// to UserDefaults (synchronous) so it can be delivered when
     /// the engine is ready.
-    func savePendingAccept(callId: String) {
+    func savePendingAccept(callId: String, extra: [String: Any]? = nil) {
         defaults.set(callId, forKey: CallStore.pendingAcceptKey)
         defaults.set(Date().timeIntervalSince1970, forKey: CallStore.pendingAcceptTimestampKey)
+        // Persist extra as a simple String→String dictionary (UserDefaults safe)
+        if let extra = extra, !extra.isEmpty {
+            let stringExtra = extra.reduce(into: [String: String]()) { result, pair in
+                result[pair.key] = "\(pair.value)"
+            }
+            defaults.set(stringExtra, forKey: CallStore.pendingAcceptExtraKey)
+        } else {
+            defaults.removeObject(forKey: CallStore.pendingAcceptExtraKey)
+        }
         defaults.synchronize()
         NSLog("[CallBundle] Saved pending accept: \(callId)")
     }
 
     /// Consumes the pending accept event (single consumption).
     ///
-    /// Returns the callId if there is a valid pending accept within
-    /// the TTL window, then clears it from storage.
-    func consumePendingAccept() -> String? {
+    /// Returns a tuple of (callId, extra) if there is a valid pending
+    /// accept within the TTL window, then clears it from storage.
+    func consumePendingAccept() -> (callId: String, extra: [String: Any])? {
         guard let callId = defaults.string(forKey: CallStore.pendingAcceptKey) else {
             return nil
         }
 
         let timestamp = defaults.double(forKey: CallStore.pendingAcceptTimestampKey)
         let elapsed = Date().timeIntervalSince1970 - timestamp
+        let extra = defaults.dictionary(forKey: CallStore.pendingAcceptExtraKey) ?? [:]
 
         // Clear from storage (single consumption)
         defaults.removeObject(forKey: CallStore.pendingAcceptKey)
         defaults.removeObject(forKey: CallStore.pendingAcceptTimestampKey)
+        defaults.removeObject(forKey: CallStore.pendingAcceptExtraKey)
         defaults.synchronize()
 
         // Check TTL
@@ -110,7 +134,7 @@ class CallStore {
         }
 
         NSLog("[CallBundle] Consumed pending accept: \(callId)")
-        return callId
+        return (callId: callId, extra: extra)
     }
 }
 
@@ -123,4 +147,5 @@ struct CallInfo {
     let handle: String
     var state: String
     let startedAt: Date
+    var extra: [String: Any]
 }

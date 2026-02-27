@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -107,7 +108,8 @@ class NotificationHelper(
         handle: String?,
         callerAvatar: String?,
         duration: Long,
-        isOemAdaptive: Boolean
+        isOemAdaptive: Boolean,
+        extra: Map<*, *> = emptyMap<String, Any>()
     ) {
         val notificationId = callId.hashCode()
 
@@ -130,8 +132,8 @@ class NotificationHelper(
                     .setImportant(true)
                     .build()
 
-                val declineIntent = createActionPendingIntent(callId, "decline")
-                val acceptIntent = createActionPendingIntent(callId, "accept")
+                val declineIntent = createActionPendingIntent(callId, "decline", extra)
+                val acceptIntent = createActionPendingIntent(callId, "accept", extra)
 
                 builder.setStyle(
                     NotificationCompat.CallStyle.forIncomingCall(
@@ -142,11 +144,11 @@ class NotificationHelper(
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "CallStyle failed, falling back to standard", e)
-                addStandardActions(builder, callId)
+                addStandardActions(builder, callId, extra)
             }
         } else {
             // Standard notification with action buttons (budget OEMs + older APIs)
-            addStandardActions(builder, callId)
+            addStandardActions(builder, callId, extra)
         }
 
         try {
@@ -262,10 +264,11 @@ class NotificationHelper(
 
     private fun addStandardActions(
         builder: NotificationCompat.Builder,
-        callId: String
+        callId: String,
+        extra: Map<*, *> = emptyMap<String, Any>()
     ) {
-        val declineIntent = createActionPendingIntent(callId, "decline")
-        val acceptIntent = createActionPendingIntent(callId, "accept")
+        val declineIntent = createActionPendingIntent(callId, "decline", extra)
+        val acceptIntent = createActionPendingIntent(callId, "accept", extra)
 
         builder.addAction(
             android.R.drawable.ic_menu_close_clear_cancel,
@@ -318,10 +321,23 @@ class NotificationHelper(
         )
     }
 
-    private fun createActionPendingIntent(callId: String, action: String): PendingIntent {
+    private fun createActionPendingIntent(
+        callId: String,
+        action: String,
+        extra: Map<*, *> = emptyMap<String, Any>()
+    ): PendingIntent {
         val intent = Intent(context, CallActionReceiver::class.java).apply {
             this.action = "com.callbundle.ACTION_${action.uppercase()}"
             putExtra("callId", callId)
+            // Embed call metadata so CallActionReceiver can persist it
+            // for cold-start event delivery via PendingCallStore.
+            if (extra.isNotEmpty()) {
+                val bundle = Bundle()
+                for ((key, value) in extra) {
+                    bundle.putString(key.toString(), value?.toString() ?: "")
+                }
+                putExtra("callExtra", bundle)
+            }
         }
 
         return PendingIntent.getBroadcast(

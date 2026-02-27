@@ -39,8 +39,15 @@ class CallActionReceiver : BroadcastReceiver() {
                     // App killed: plugin not alive yet.
                     // Persist directly so deliverPendingEvents() picks it up
                     // after Flutter engine starts and configure() is called.
-                    Log.d(TAG, "onReceive: Plugin null, persisting accept to PendingCallStore")
-                    PendingCallStore(context).savePendingAccept(callId, emptyMap<String, Any>())
+                    // Extract call metadata from the PendingIntent's embedded Bundle
+                    // so accepted events include caller info on cold-start.
+                    val extraBundle = intent.getBundleExtra("callExtra")
+                    val extra = mutableMapOf<String, Any>()
+                    extraBundle?.keySet()?.forEach { key ->
+                        extra[key] = extraBundle.getString(key) ?: ""
+                    }
+                    Log.d(TAG, "onReceive: Plugin null, persisting accept to PendingCallStore (extra keys: ${extra.keys})")
+                    PendingCallStore(context).savePendingAccept(callId, extra)
                 }
             }
             ACTION_DECLINE -> {

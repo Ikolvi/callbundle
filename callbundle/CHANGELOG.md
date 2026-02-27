@@ -1,3 +1,9 @@
+## 1.0.8
+
+* **Fix: Incoming call UI not showing in killed state** — both Android and iOS now initialize native call infrastructure eagerly at plugin registration.
+* **Fix: Call notification not dismissed on accept** — Android now cancels the notification when the user accepts.
+* **Fix: Caller metadata (`extra`) lost in cold-start flows** — `extra` is now threaded through PendingIntents (Android) and `CallStore` (iOS) so it survives app-killed accept/decline.
+
 ## 1.0.7
 
 * Fix corrupted Links section in README.

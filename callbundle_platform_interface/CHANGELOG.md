@@ -1,3 +1,7 @@
+## 1.0.8
+
+* Version bump to align with Android & iOS bug fixes.
+
 ## 1.0.7
 
 * Fix unresolved `[CallBundle.configure]` doc reference for pub.dev documentation score.

@@ -1,3 +1,10 @@
+## 1.0.8
+
+* Fix incoming call UI not showing when app is in killed state — `NotificationHelper` now initializes eagerly at plugin registration instead of waiting for `configure()`.
+* Fix notification not dismissed on call accept — `cancelNotification` now called in `onCallAccepted()`.
+* Thread `extra` metadata through notification PendingIntents so caller info is preserved in cold-start accept/decline flows.
+* `CallActionReceiver` now extracts `callExtra` Bundle from Intent when plugin is null, preventing metadata loss.
+
 ## 1.0.7
 
 * Add `dartPluginClass: CallBundleAndroid` for proper federated plugin registration.

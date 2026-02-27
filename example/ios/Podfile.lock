@@ -1,0 +1,22 @@
+PODS:
+  - callbundle_ios (1.0.7):
+    - Flutter
+  - Flutter (1.0.0)
+
+DEPENDENCIES:
+  - callbundle_ios (from `.symlinks/plugins/callbundle_ios/ios`)
+  - Flutter (from `Flutter`)
+
+EXTERNAL SOURCES:
+  callbundle_ios:
+    :path: ".symlinks/plugins/callbundle_ios/ios"
+  Flutter:
+    :path: Flutter
+
+SPEC CHECKSUMS:
+  callbundle_ios: 4029e8a371031a63dc914c3b5101b330183edd59
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+
+PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e
+
+COCOAPODS: 1.16.2

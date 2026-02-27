@@ -173,7 +173,8 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
                     details: nil
                 ))
             } else {
-                self?.callStore?.addCall(callId: callId, callerName: callerName, handle: handle)
+                let extra = args["extra"] as? [String: Any]
+                self?.callStore?.addCall(callId: callId, callerName: callerName, handle: handle, extra: extra)
                 result(nil)
             }
         }
@@ -214,7 +215,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             hasVideo: hasVideo
         )
 
-        callStore?.addCall(callId: callId, callerName: callerName, handle: handle)
+        callStore?.addCall(callId: callId, callerName: callerName, handle: handle, extra: args["extra"] as? [String: Any])
         result(nil)
     }
 
@@ -338,10 +339,18 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
     /// Uses `isUserInitiated` to distinguish user actions from programmatic
     /// actions, eliminating the `_isEndingCallKitProgrammatically` flag.
     func sendCallEvent(type: String, callId: String, isUserInitiated: Bool, extra: [String: Any]? = nil) {
+        // Resolve extra: use provided extra, or fall back to callStore's stored extra
+        let resolvedExtra: [String: Any]?
+        if let extra = extra, !extra.isEmpty {
+            resolvedExtra = extra
+        } else {
+            resolvedExtra = callStore?.getCall(callId: callId)?.extra
+        }
+
         guard isReady else {
             // Store as pending if not ready (cold-start scenario)
             if type == "accepted" {
-                callStore?.savePendingAccept(callId: callId)
+                callStore?.savePendingAccept(callId: callId, extra: resolvedExtra)
             }
             return
         }
@@ -353,8 +362,8 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             "timestamp": Int64(Date().timeIntervalSince1970 * 1000),
         ]
 
-        if let extra = extra {
-            event["extra"] = extra
+        if let resolvedExtra = resolvedExtra, !resolvedExtra.isEmpty {
+            event["extra"] = resolvedExtra
         }
 
         DispatchQueue.main.async { [weak self] in
@@ -379,7 +388,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
     /// Delivers pending events stored during cold-start.
     private func deliverPendingEvents() {
         guard let pending = callStore?.consumePendingAccept() else { return }
-        sendCallEvent(type: "accepted", callId: pending, isUserInitiated: true)
+        sendCallEvent(type: "accepted", callId: pending.callId, isUserInitiated: true, extra: pending.extra)
     }
 
     // MARK: - Audio Session

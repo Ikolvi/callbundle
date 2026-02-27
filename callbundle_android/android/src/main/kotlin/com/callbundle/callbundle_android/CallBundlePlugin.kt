@@ -81,6 +81,14 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         pendingCallStore = PendingCallStore(context)
         oemDetector = OemDetector()
 
+        // Initialize notificationHelper eagerly with a default app name.
+        // This is CRITICAL for killed-state incoming calls: the background
+        // FCM handler calls showIncomingCall() without calling configure()
+        // first, so notificationHelper must already be available.
+        // configure() will re-initialize it with the proper app name later.
+        notificationHelper = NotificationHelper(context, "Call")
+        notificationHelper?.ensureNotificationChannel()
+
         Log.d(TAG, "onAttachedToEngine: Plugin attached")
     }
 
@@ -249,7 +257,8 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 handle = handle,
                 callerAvatar = callerAvatar,
                 duration = duration,
-                isOemAdaptive = oemDetector?.isBudgetOem() ?: false
+                isOemAdaptive = oemDetector?.isBudgetOem() ?: false,
+                extra = extra
             )
 
             result.success(null)
@@ -590,6 +599,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      */
     fun onCallAccepted(callId: String) {
         callStateManager?.updateCallState(callId, "active", isAccepted = true)
+        notificationHelper?.cancelNotification(callId)
         notificationHelper?.stopRingtone()
 
         val extra = callStateManager?.getCall(callId)?.extra ?: emptyMap<String, Any>()
