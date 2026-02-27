@@ -1,5 +1,6 @@
-## 1.0.9
+## 1.0.13
 
+* Version alignment — all CallBundle packages now share the same version number.
 * Documentation rewrite — clean formatting, split docs across packages, data model reference.
 
 ## 1.0.8

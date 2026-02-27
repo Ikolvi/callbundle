@@ -1,5 +1,6 @@
-## 1.0.10
+## 1.0.13
 
+* Version alignment — all CallBundle packages now share the same version number.
 * Documentation rewrite — VoIP certificate setup (PEM file), PushKit integration, CallKit architecture, audio session, and cold-start docs.
 
 ## 1.0.9

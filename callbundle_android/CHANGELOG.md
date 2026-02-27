@@ -1,5 +1,6 @@
 ## 1.0.13
 
+* Version alignment — all CallBundle packages now share the same version number.
 * Documentation rewrite — clean formatting, OEM-adaptive notifications, background reject, token refresh, ProGuard, and battery optimization docs.
 
 ## 1.0.12
