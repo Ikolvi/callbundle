@@ -804,6 +804,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      * Handles a user decline action from a notification or TelecomManager.
      */
     fun onCallDeclined(callId: String) {
+        Log.d(TAG, "onCallDeclined: callId=$callId, isConfigured=$isConfigured")
         callStateManager?.updateCallState(callId, "ended")
         notificationHelper?.cancelNotification(callId)
         notificationHelper?.stopRingtone()
@@ -812,6 +813,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         IncomingCallActivity.dismissIfShowing()
 
         val extra = callStateManager?.getCall(callId)?.extra ?: emptyMap<String, Any>()
+        Log.d(TAG, "onCallDeclined: sending declined event (extra keys: ${extra.keys})")
         sendCallEvent(
             type = "declined",
             callId = callId,
