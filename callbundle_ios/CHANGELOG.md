@@ -1,3 +1,9 @@
+## 1.0.9
+
+* **Fix: `reportCallConnected()` was ending the call immediately** — removed destructive `reportCall(with:endedAt:reason:.remoteEnded)` that killed the CallKit audio session right after the user accepted.
+* **Fix: `CXEndCallAction` always reported `isUserInitiated: true`** — added `programmaticEndUUIDs` tracking so programmatic `endCall()` from Dart is correctly flagged as `isUserInitiated: false`, preventing duplicate end-call dispatch loops.
+* **Fix: `providerDidReset` cleanup** — now clears `programmaticEndUUIDs` tracking set.
+
 ## 1.0.8
 
 * Fix incoming call UI not showing when app is in killed state — `CXProvider` now created eagerly in `init()` instead of waiting for `configure()`.

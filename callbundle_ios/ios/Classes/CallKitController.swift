@@ -28,6 +28,15 @@ class CallKitController: NSObject {
     private var uuidToCallId: [UUID: String] = [:]
     private let queue = DispatchQueue(label: "com.callbundle.callkit", qos: .userInteractive)
 
+    /// Tracks UUIDs for which `endCall()` was called programmatically
+    /// (from Dart's `CallBundle.endCall()`). When `CXEndCallAction` fires
+    /// for one of these, the event is sent with `isUserInitiated: false`.
+    ///
+    /// Without this, ALL `CXEndCallAction` delegations would report
+    /// `isUserInitiated: true`, causing the BLoC to dispatch a duplicate
+    /// `CallEndRequested` → `endCall()` loop.
+    private var programmaticEndUUIDs: Set<UUID> = []
+
     // Configuration
     private var includesCallsInRecents = true
 
@@ -158,19 +167,39 @@ class CallKitController: NSObject {
     }
 
     /// Reports that a call has connected.
+    ///
+    /// For **outgoing** calls: transitions CallKit from "connecting" to
+    /// "connected" (shows timer, green bar).
+    ///
+    /// For **incoming** calls that were already accepted via
+    /// `CXAnswerCallAction`: this is a safe no-op — iOS ignores
+    /// `reportOutgoingCall` for incoming call UUIDs.
     func reportCallConnected(uuid: UUID) {
-        provider?.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
-        // Actually, we should report it as connected
+        // FIXED: Previously called `reportCall(with:endedAt:reason:.remoteEnded)`
+        // here, which ENDED the CallKit call immediately after accepting.
+        // This killed the audio session and made calls appear "not working".
         provider?.reportOutgoingCall(with: uuid, connectedAt: Date())
     }
 
-    /// Ends a specific call.
+    /// Ends a specific call programmatically (triggered from Dart).
+    ///
+    /// Marks this UUID as programmatic so that when `CXEndCallAction`
+    /// fires in the delegate, we can send `isUserInitiated: false`,
+    /// preventing the BLoC from dispatching a duplicate `CallEndRequested`.
     func endCall(uuid: UUID) {
+        queue.sync {
+            programmaticEndUUIDs.insert(uuid)
+        }
+
         let endCallAction = CXEndCallAction(call: uuid)
         let transaction = CXTransaction(action: endCallAction)
-        callController.request(transaction) { error in
+        callController.request(transaction) { [weak self] error in
             if let error = error {
                 NSLog("[CallBundle] Failed to end call: \(error.localizedDescription)")
+                // Clean up tracking on failure
+                self?.queue.sync {
+                    self?.programmaticEndUUIDs.remove(uuid)
+                }
             }
         }
     }
@@ -208,6 +237,7 @@ extension CallKitController: CXProviderDelegate {
         NSLog("[CallBundle] providerDidReset")
         queue.sync {
             uuidToCallId.removeAll()
+            programmaticEndUUIDs.removeAll()
         }
     }
 
@@ -221,11 +251,17 @@ extension CallKitController: CXProviderDelegate {
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
         let callId = callIdForUUID(action.callUUID)
-        NSLog("[CallBundle] CXEndCallAction: \(callId)")
 
-        // This fires for both user-initiated declines AND programmatic ends.
-        // The plugin determines isUserInitiated based on whether it called endCall itself.
-        plugin?.sendCallEvent(type: "ended", callId: callId, isUserInitiated: true)
+        // Determine if this end was triggered programmatically by Dart's
+        // endCall() or by the user tapping "End" on the native CallKit UI.
+        let isProgrammatic: Bool = queue.sync {
+            programmaticEndUUIDs.remove(action.callUUID) != nil
+        }
+        let isUserInitiated = !isProgrammatic
+
+        NSLog("[CallBundle] CXEndCallAction: \(callId) isUserInitiated=\(isUserInitiated)")
+
+        plugin?.sendCallEvent(type: "ended", callId: callId, isUserInitiated: isUserInitiated)
 
         removeUUID(action.callUUID)
         action.fulfill()

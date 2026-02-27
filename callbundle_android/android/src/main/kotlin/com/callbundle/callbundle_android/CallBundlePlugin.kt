@@ -34,7 +34,8 @@ import io.flutter.plugin.common.PluginRegistry
  * - Implements PendingCallStore for cold-start event delivery
  */
 class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
-    PluginRegistry.RequestPermissionsResultListener {
+    PluginRegistry.RequestPermissionsResultListener,
+    PluginRegistry.NewIntentListener {
 
     companion object {
         private const val TAG = "CallBundlePlugin"
@@ -74,7 +75,18 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         messenger = binding.binaryMessenger
         channel = MethodChannel(messenger, CHANNEL_NAME)
         channel.setMethodCallHandler(this)
-        instance = this
+
+        // Preserve the main (configured) instance — when FCM spawns a
+        // background FlutterEngine for data-only messages, a NEW
+        // CallBundlePlugin is created and onAttachedToEngine fires again.
+        // If we blindly overwrote `instance`, CallActionReceiver would
+        // call onCallAccepted() on the unconfigured background instance,
+        // hitting isConfigured=false and storing pending instead of
+        // sending through the main engine's active MethodChannel.
+        val existing = instance
+        if (existing == null || !existing.isConfigured) {
+            instance = this
+        }
 
         // Initialize core components that are needed immediately
         callStateManager = CallStateManager()
@@ -89,7 +101,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         notificationHelper = NotificationHelper(context, "Call")
         notificationHelper?.ensureNotificationChannel()
 
-        Log.d(TAG, "onAttachedToEngine: Plugin attached")
+        Log.d(TAG, "onAttachedToEngine: Plugin attached (isMainInstance=${instance == this})")
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -109,15 +121,49 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         activity = binding.activity
         activityBinding = binding
         binding.addRequestPermissionsResultListener(this)
+        binding.addOnNewIntentListener(this)
 
         // Enable lock screen display for incoming calls (API 27+)
         applyLockScreenFlags(binding.activity)
+
+        // Check if Activity was launched by a notification Accept action
+        // (killed-state: PendingIntent.getActivity starts the Activity
+        // fresh, so onNewIntent does NOT fire — only onCreate).
+        val intent = binding.activity.intent
+        if (intent?.getStringExtra("action") == "call_accepted") {
+            val callId = intent.getStringExtra("callId")
+            if (callId != null) {
+                Log.d(TAG, "onAttachedToActivity: call_accepted intent for callId=$callId")
+
+                notificationHelper?.cancelNotification(callId)
+                notificationHelper?.stopRingtone()
+
+                val extraBundle = intent.getBundleExtra("callExtra")
+                val extra = if (extraBundle != null) {
+                    mutableMapOf<String, Any>().also { map ->
+                        extraBundle.keySet().forEach { key ->
+                            map[key] = extraBundle.getString(key) ?: ""
+                        }
+                    }
+                } else emptyMap<String, Any>()
+
+                // Not configured yet (app just starting) — save for
+                // delivery when configure() calls deliverPendingEvents().
+                pendingCallStore?.savePendingAccept(callId, extra)
+                Log.d(TAG, "onAttachedToActivity: Saved pending accept for callId=$callId")
+            }
+
+            // Clear the intent extras to prevent re-processing on
+            // config changes (rotation, theme change, etc.).
+            intent.removeExtra("action")
+        }
 
         Log.d(TAG, "onAttachedToActivity")
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
         activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding?.removeOnNewIntentListener(this)
         activityBinding = null
         activity = null
     }
@@ -126,14 +172,67 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
         activity = binding.activity
         activityBinding = binding
         binding.addRequestPermissionsResultListener(this)
+        binding.addOnNewIntentListener(this)
         applyLockScreenFlags(binding.activity)
     }
 
     override fun onDetachedFromActivity() {
         activityBinding?.removeRequestPermissionsResultListener(this)
+        activityBinding?.removeOnNewIntentListener(this)
         activityBinding = null
         activity = null
     }
+
+    // endregion
+
+    // region NewIntentListener
+
+    /**
+     * Safety net: when the Accept notification action (PendingIntent.getActivity)
+     * or [bringAppToForeground] resumes the Activity, Android calls `onNewIntent`.
+     *
+     * If the plugin is configured, the accept event is sent immediately.
+     * Otherwise, it's stored in [PendingCallStore] for delivery after configure().
+     */
+    override fun onNewIntent(intent: Intent): Boolean {
+        val action = intent.getStringExtra("action")
+        if (action == "call_accepted") {
+            val callId = intent.getStringExtra("callId") ?: return false
+            Log.d(TAG, "onNewIntent: call_accepted for callId=$callId")
+
+            // Cancel the incoming call notification and ringtone
+            notificationHelper?.cancelNotification(callId)
+            notificationHelper?.stopRingtone()
+
+            // Extract caller metadata from the intent
+            val extraBundle = intent.getBundleExtra("callExtra")
+            val extra = if (extraBundle != null) {
+                mutableMapOf<String, Any>().also { map ->
+                    extraBundle.keySet().forEach { key ->
+                        map[key] = extraBundle.getString(key) ?: ""
+                    }
+                }
+            } else emptyMap<String, Any>()
+
+            if (isConfigured) {
+                callStateManager?.updateCallState(callId, "active", isAccepted = true)
+                sendCallEvent(
+                    type = "accepted",
+                    callId = callId,
+                    isUserInitiated = true,
+                    extra = extra
+                )
+            } else {
+                // App just starting — save for delivery after configure()
+                pendingCallStore?.savePendingAccept(callId, extra)
+                Log.d(TAG, "onNewIntent: Saved pending accept for callId=$callId")
+            }
+            return true
+        }
+        return false
+    }
+
+    // endregion
 
     /**
      * Applies window flags to show the activity over the lock screen
@@ -596,13 +695,20 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
      * Handles a user accept action from a notification or TelecomManager.
      *
      * Called by ConnectionService or notification action receiver.
+     *
+     * @param callId The unique call identifier.
+     * @param intentExtra Optional extra metadata from the notification intent.
+     *   Used as fallback when this instance's [callStateManager] doesn't
+     *   have the call (e.g., call was registered by a background FCM engine).
      */
-    fun onCallAccepted(callId: String) {
+    fun onCallAccepted(callId: String, intentExtra: Map<String, Any>? = null) {
         callStateManager?.updateCallState(callId, "active", isAccepted = true)
         notificationHelper?.cancelNotification(callId)
         notificationHelper?.stopRingtone()
 
-        val extra = callStateManager?.getCall(callId)?.extra ?: emptyMap<String, Any>()
+        val extra = callStateManager?.getCall(callId)?.extra
+            ?: intentExtra
+            ?: emptyMap<String, Any>()
 
         if (isConfigured) {
             sendCallEvent(
@@ -616,6 +722,11 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             pendingCallStore?.savePendingAccept(callId, extra)
             Log.d(TAG, "onCallAccepted: Stored pending accept for callId=$callId")
         }
+
+        // CRITICAL: Bring the app to the foreground so the user sees
+        // the in-app call screen. Without this, accepting from a
+        // background notification or lock screen leaves the app invisible.
+        bringAppToForeground(callId)
     }
 
     /**
@@ -668,6 +779,44 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             } catch (e: Exception) {
                 Log.e(TAG, "sendReadySignal: Failed", e)
             }
+        }
+    }
+
+    /**
+     * Brings the app's main Activity to the foreground.
+     *
+     * Called after the user accepts an incoming call. Without this,
+     * accepting from a background notification or lock screen leaves
+     * the app invisible — the Dart side navigates to the call screen
+     * but the user never sees it.
+     *
+     * Uses [FLAG_ACTIVITY_SINGLE_TOP] to avoid creating duplicate activities
+     * and [FLAG_ACTIVITY_REORDER_TO_FRONT] to bring an existing activity
+     * to the front of the task.
+     *
+     * On Android 10+ (API 29+) this relies on the background activity
+     * start exemption granted by the user-tapped notification PendingIntent.
+     */
+    private fun bringAppToForeground(callId: String) {
+        try {
+            val launchIntent = context.packageManager
+                .getLaunchIntentForPackage(context.packageName)
+
+            if (launchIntent != null) {
+                launchIntent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                )
+                launchIntent.putExtra("callId", callId)
+                launchIntent.putExtra("action", "call_accepted")
+                context.startActivity(launchIntent)
+                Log.d(TAG, "bringAppToForeground: Launched activity for callId=$callId")
+            } else {
+                Log.w(TAG, "bringAppToForeground: Launch intent null for ${context.packageName}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "bringAppToForeground: Failed", e)
         }
     }
 

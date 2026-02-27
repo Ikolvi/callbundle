@@ -51,10 +51,17 @@ class NotificationHelper(
         private const val CHANNEL_NAME = "Incoming Calls"
         private const val ONGOING_CHANNEL_ID = "callbundle_ongoing_channel"
         private const val ONGOING_CHANNEL_NAME = "Ongoing Calls"
-    }
 
-    private var mediaPlayer: MediaPlayer? = null
-    private var vibrator: Vibrator? = null
+        // Static: shared across all NotificationHelper instances (main engine
+        // + background FCM engine). The background engine's startSound()
+        // creates the MediaPlayer; the main engine's stopRingtone() must
+        // be able to stop it. Instance fields would fail because each engine
+        // has its own NotificationHelper with its own null reference.
+        @Volatile
+        private var mediaPlayer: MediaPlayer? = null
+        @Volatile
+        private var vibrator: Vibrator? = null
+    }
 
     /**
      * Ensures the notification channels exist.
@@ -268,7 +275,13 @@ class NotificationHelper(
         extra: Map<*, *> = emptyMap<String, Any>()
     ) {
         val declineIntent = createActionPendingIntent(callId, "decline", extra)
-        val acceptIntent = createActionPendingIntent(callId, "accept", extra)
+
+        // CRITICAL: Accept uses PendingIntent.getActivity() instead of
+        // getBroadcast(). This ensures the Activity launches directly when
+        // the user taps Accept. Using getBroadcast() + startActivity() from
+        // a BroadcastReceiver fails on Android 12+ and many OEMs (Samsung,
+        // Xiaomi, OPPO) due to background activity launch restrictions.
+        val acceptIntent = createAcceptActivityPendingIntent(callId, extra)
 
         builder.addAction(
             android.R.drawable.ic_menu_close_clear_cancel,
@@ -343,6 +356,57 @@ class NotificationHelper(
         return PendingIntent.getBroadcast(
             context,
             "$callId$action".hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    /**
+     * Creates a PendingIntent that directly launches the app's main Activity
+     * when the user taps Accept on the notification.
+     *
+     * Using [PendingIntent.getActivity] instead of [PendingIntent.getBroadcast]
+     * is critical because:
+     * - On Android 12+ (API 31), BroadcastReceivers cannot reliably start
+     *   activities from the background (BAL restrictions).
+     * - Many OEMs (Samsung, Xiaomi, OPPO) further restrict background activity
+     *   starts from receivers.
+     * - PendingIntent.getActivity from a notification action has a strong
+     *   OS-level exemption that works on all devices.
+     *
+     * The launched Activity receives the intent via `onNewIntent()` (if already
+     * running) or `onCreate()` (if killed). The plugin handles both via
+     * [NewIntentListener] and [onAttachedToActivity].
+     */
+    private fun createAcceptActivityPendingIntent(
+        callId: String,
+        extra: Map<*, *> = emptyMap<String, Any>()
+    ): PendingIntent {
+        val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            ?: Intent().apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+
+        intent.apply {
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            )
+            putExtra("callId", callId)
+            putExtra("action", "call_accepted")
+            if (extra.isNotEmpty()) {
+                val bundle = Bundle()
+                for ((key, value) in extra) {
+                    bundle.putString(key.toString(), value?.toString() ?: "")
+                }
+                putExtra("callExtra", bundle)
+            }
+        }
+
+        return PendingIntent.getActivity(
+            context,
+            "${callId}accept".hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

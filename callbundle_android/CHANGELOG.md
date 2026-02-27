@@ -1,3 +1,15 @@
+## 1.0.10
+
+* **Fix: Background FCM engine hijacking main plugin instance** — `onAttachedToEngine` now preserves the configured main instance so `CallActionReceiver` sends through the active MethodChannel instead of storing pending.
+* **Fix: Caller metadata missing after background accept** — `onCallAccepted` now accepts optional `intentExtra` fallback from notification PendingIntent when `callStateManager` doesn't have the call (registered by background engine).
+* **Fix: Accept notification action doesn't open app (killed state)** — Accept button now uses `PendingIntent.getActivity()` instead of `getBroadcast()`, which directly launches the Activity with a strong OS-level BAL exemption that works on Android 12+ and all OEMs. Plugin handles the intent in `onNewIntent` (background) and `onAttachedToActivity` (killed).
+* **Fix: Ringtone continues playing after decline** — `mediaPlayer` and `vibrator` are now static/companion fields shared across all `NotificationHelper` instances, so the main engine can stop the ringtone started by the background FCM engine.
+* **Safety net: `onNewIntent` delivers pending events** — if pending accept was stored (background engine fallback), the `bringAppToForeground` intent triggers pending delivery via `NewIntentListener`.
+
+## 1.0.9
+
+* **Fix: App not brought to foreground after accepting call** — `CallActionReceiver` and `CallBundlePlugin.onCallAccepted()` now launch the main Activity with `FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_SINGLE_TOP | FLAG_ACTIVITY_REORDER_TO_FRONT` so the app is visible after accepting from a notification in background/killed state.
+
 ## 1.0.8
 
 * Fix incoming call UI not showing when app is in killed state — `NotificationHelper` now initializes eagerly at plugin registration instead of waiting for `configure()`.
