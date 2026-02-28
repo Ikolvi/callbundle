@@ -153,6 +153,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         let callerName = args["callerName"] as? String ?? "Unknown"
         let handle = args["handle"] as? String ?? ""
         let callType = (args["callType"] as? Int) ?? 0
+        let callerAvatar = args["callerAvatar"] as? String
         let iosParams = args["ios"] as? [String: Any]
 
         // Read handleType from nested ios params
@@ -177,7 +178,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         NSLog("[CallBundle] handleShowIncomingCall: callId=\(callId), callerName=\(callerName), extraKeys=\(extra?.keys.sorted() ?? []), extraCount=\(extra?.count ?? 0)")
         // Use addOrUpdateCall so that if PushKit already stored a basic entry,
         // the richer extra from Dart is merged in rather than creating a duplicate.
-        callStore?.addOrUpdateCall(callId: callId, callerName: callerName, handle: handle, extra: extra)
+        callStore?.addOrUpdateCall(callId: callId, callerName: callerName, handle: handle, callerAvatar: callerAvatar, extra: extra)
 
         callKitController?.reportIncomingCall(
             uuid: uuidFromString(callId),
@@ -214,6 +215,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         let callerName = args["callerName"] as? String ?? "Unknown"
         let handle = args["handle"] as? String ?? ""
         let callType = (args["callType"] as? Int) ?? 0
+        let callerAvatar = args["callerAvatar"] as? String
         let iosParams = args["ios"] as? [String: Any]
 
         // Read handleType from nested ios params
@@ -240,7 +242,7 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             hasVideo: hasVideo
         )
 
-        callStore?.addCall(callId: callId, callerName: callerName, handle: handle, extra: args["extra"] as? [String: Any])
+        callStore?.addCall(callId: callId, callerName: callerName, handle: handle, callerAvatar: callerAvatar, extra: args["extra"] as? [String: Any])
         result(nil)
     }
 

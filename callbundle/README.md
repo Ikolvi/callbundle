@@ -190,7 +190,7 @@ NativeCallParams(
   handle: '+1234567890',                     // Phone number or identifier
   callType: NativeCallType.voice,            // voice or video
   duration: 60000,                           // Auto-dismiss timeout (ms)
-  callerAvatar: 'https://...',               // Avatar URL (Android only)
+  callerAvatar: 'https://...',               // Avatar URL (both platforms)
   extra: {'roomId': 'abc'},                  // Pass-through metadata
   android: const AndroidCallParams(),        // Android-specific options
   ios: const IosCallParams(                  // iOS-specific options

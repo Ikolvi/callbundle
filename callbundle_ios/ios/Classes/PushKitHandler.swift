@@ -91,6 +91,8 @@ extension PushKitHandler: PKPushRegistryDelegate {
         let hasVideo = data["hasVideo"] as? Bool
             ?? data["has_video"] as? Bool
             ?? false
+        let callerAvatar = data["callerAvatar"] as? String
+            ?? data["caller_avatar"] as? String
 
         // CRITICAL: Must report incoming call SYNCHRONOUSLY here.
         // iOS will terminate the app if reportNewIncomingCall is not
@@ -122,7 +124,7 @@ extension PushKitHandler: PKPushRegistryDelegate {
             "hasVideo": hasVideo,
         ]
         (CallBundlePlugin.shared as? CallBundlePlugin)?.callStoreForPush?.addCall(
-            callId: callId, callerName: callerName, handle: handle, extra: pushExtra
+            callId: callId, callerName: callerName, handle: handle, callerAvatar: callerAvatar, extra: pushExtra
         )
 
         callKitController.reportIncomingCall(

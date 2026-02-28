@@ -1,3 +1,8 @@
+## 1.0.14
+
+* Added `callerAvatar` field to `NativeCallParams` for caller profile photo support.
+* Documentation updates for avatar feature.
+
 ## 1.0.13
 
 * Version alignment — all CallBundle packages now share the same version number.

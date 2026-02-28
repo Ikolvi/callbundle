@@ -5,6 +5,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -20,6 +22,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 
 /**
  * OEM-adaptive notification builder for incoming and ongoing calls.
@@ -148,6 +151,9 @@ class NotificationHelper(
     ) {
         val notificationId = callId.hashCode()
 
+        // Download avatar bitmap (quick, blocking — OK for notification posting)
+        val avatarBitmap = downloadBitmap(callerAvatar)
+
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.sym_call_incoming)
             .setContentTitle(callerName)
@@ -159,13 +165,21 @@ class NotificationHelper(
             .setAutoCancel(false)
             .setFullScreenIntent(createFullScreenIntent(callId, callerName, callType, callerAvatar, extra), true)
 
+        // Set large icon for standard notifications
+        if (avatarBitmap != null) {
+            builder.setLargeIcon(avatarBitmap)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !isOemAdaptive) {
             // Use CallStyle for Android 12+ on non-budget OEMs
             try {
-                val callerPerson = Person.Builder()
+                val callerPersonBuilder = Person.Builder()
                     .setName(callerName)
                     .setImportant(true)
-                    .build()
+                if (avatarBitmap != null) {
+                    callerPersonBuilder.setIcon(IconCompat.createWithBitmap(avatarBitmap))
+                }
+                val callerPerson = callerPersonBuilder.build()
 
                 val declineIntent = createActionPendingIntent(callId, "decline", extra)
                 // CRITICAL: Use PendingIntent.getActivity() for Accept,
@@ -224,9 +238,13 @@ class NotificationHelper(
     fun showOngoingCallNotification(
         callId: String,
         callerName: String,
-        callType: Int
+        callType: Int,
+        callerAvatar: String? = null
     ) {
         val notificationId = callId.hashCode()
+
+        // Download avatar bitmap on background thread (reuse existing helper)
+        val avatarBitmap = downloadBitmap(callerAvatar)
 
         val builder = NotificationCompat.Builder(context, ONGOING_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.sym_call_outgoing)
@@ -237,6 +255,11 @@ class NotificationHelper(
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setUsesChronometer(true)
+
+        // Set avatar as large icon if available
+        if (avatarBitmap != null) {
+            builder.setLargeIcon(avatarBitmap)
+        }
 
         // Add end call action
         val endIntent = createActionPendingIntent(callId, "end")
@@ -515,6 +538,38 @@ class NotificationHelper(
             }
         } catch (e: Exception) {
             Log.e(TAG, "startVibration: Failed to start vibration", e)
+        }
+    }
+
+    // endregion
+
+    // region Avatar Download
+
+    /**
+     * Downloads a bitmap from a URL synchronously.
+     *
+     * Used to set notification large icon and [Person] icon for CallStyle.
+     * Returns null on any failure — caller falls back to no-avatar notification.
+     *
+     * This runs on the calling thread; for notification posting that's
+     * acceptable since FCM/service threads are background threads.
+     */
+    private fun downloadBitmap(url: String?): Bitmap? {
+        if (url.isNullOrBlank()) return null
+        return try {
+            val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            connection.connectTimeout = 3000
+            connection.readTimeout = 3000
+            connection.doInput = true
+            connection.connect()
+            if (connection.responseCode == 200) {
+                BitmapFactory.decodeStream(connection.inputStream)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "downloadBitmap: Failed to load avatar from $url", e)
+            null
         }
     }
 

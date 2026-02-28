@@ -79,6 +79,7 @@ data class CallInfo(
     val callType: Int,
     val state: String,
     val isAccepted: Boolean,
+    val callerAvatar: String? = null,
     val startTime: Long = System.currentTimeMillis(),
     val extra: Map<*, *> = emptyMap<String, Any>()
 )

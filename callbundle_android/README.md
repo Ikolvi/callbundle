@@ -11,13 +11,14 @@ The Android implementation of [`callbundle`](https://pub.dev/packages/callbundle
 1. [Usage](#usage)
 2. [Architecture](#architecture)
 3. [OEM-Adaptive Notifications](#oem-adaptive-notifications)
-4. [Cold-Start Event Persistence](#cold-start-event-persistence)
-5. [Background Call Rejection (Killed State)](#background-call-rejection-killed-state)
-6. [Automatic Token Refresh](#automatic-token-refresh)
-7. [Consumer ProGuard Rules](#consumer-proguard-rules)
-8. [Permissions](#permissions)
-9. [Battery Optimization Exemption](#battery-optimization-exemption)
-10. [Requirements](#requirements)
+4. [Caller Avatar](#caller-avatar)
+5. [Cold-Start Event Persistence](#cold-start-event-persistence)
+6. [Background Call Rejection (Killed State)](#background-call-rejection-killed-state)
+7. [Automatic Token Refresh](#automatic-token-refresh)
+8. [Consumer ProGuard Rules](#consumer-proguard-rules)
+9. [Permissions](#permissions)
+10. [Battery Optimization Exemption](#battery-optimization-exemption)
+11. [Requirements](#requirements)
 
 ---
 
@@ -64,6 +65,27 @@ Ringtone (`mediaPlayer`) and vibration (`vibrator`) instances are **static/compa
 ### Notification Auto-Timeout
 
 Incoming call notifications auto-dismiss after the configured `duration` (default 60s). A `timedOut` event is sent to Dart. This acts as a safety net for delayed `call_cancelled` FCM messages.
+
+---
+
+## Caller Avatar
+
+When `callerAvatar` is provided in `NativeCallParams`, the plugin displays the caller's profile photo in:
+
+- **Incoming call full-screen Activity** — profile photo loaded via [Coil](https://coil-kt.github.io/coil/) with `CircleCropTransformation`. Falls back to colored initials circle on error.
+- **Incoming call notification** — `setLargeIcon()` with the downloaded bitmap. On Android 12+ with `CallStyle`, the `Person` icon is also set.
+- **Ongoing call notification** — large icon set to the avatar bitmap.
+
+Avatar images are downloaded synchronously on the background thread (FCM/service) using `HttpURLConnection` with a 3-second timeout. If the download fails, all UI gracefully falls back to the default (initials or no icon).
+
+```dart
+await CallBundle.showIncomingCall(NativeCallParams(
+  callId: 'call-123',
+  callerName: 'Jane Smith',
+  callerAvatar: 'https://example.com/photos/jane.jpg',
+  callType: NativeCallType.voice,
+));
+```
 
 ---
 

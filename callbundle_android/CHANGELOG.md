@@ -1,3 +1,12 @@
+## 1.0.14
+
+* **Caller avatar support** — profile photos displayed in incoming call full-screen Activity (via Coil), notification large icon, and CallStyle person icon.
+* Added `callerAvatar` field to `CallInfo` data class.
+* Added `io.coil-kt:coil:2.7.0` dependency for image loading.
+* `NotificationHelper.showOngoingCallNotification` now accepts optional `callerAvatar` parameter.
+* `IncomingCallActivity` shows profile photo with circle crop and graceful initials fallback.
+* Documentation updates — new Caller Avatar section.
+
 ## 1.0.13
 
 * Version alignment — all CallBundle packages now share the same version number.

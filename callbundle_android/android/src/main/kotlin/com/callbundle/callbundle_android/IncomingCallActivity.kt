@@ -22,9 +22,12 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationManagerCompat
+import coil.load
+import coil.transform.CircleCropTransformation
 
 /**
  * Native Android Activity displayed over the lock screen for incoming calls.
@@ -333,7 +336,7 @@ class IncomingCallActivity : Activity() {
         // Add 3 pulsating ring views behind the avatar
         buildPulseRings(avatarContainer, avatarSize)
 
-        // Avatar circle with initials
+        // Avatar circle with profile photo or initials fallback
         val initials = callerName
             .split(" ")
             .take(2)
@@ -341,18 +344,43 @@ class IncomingCallActivity : Activity() {
             .joinToString("")
             .ifEmpty { "?" }
 
-        val avatarView = TextView(this).apply {
-            text = initials
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f)
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#3F51B5"))
+        val hasAvatar = !callerAvatar.isNullOrBlank()
+
+        if (hasAvatar) {
+            // Profile photo via Coil
+            val avatarImageView = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = FrameLayout.LayoutParams(avatarSize, avatarSize, Gravity.CENTER)
+                // Clip to circle
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.parseColor("#3F51B5"))
+                }
+                clipToOutline = true
+                outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: android.graphics.Outline) {
+                        outline.setOval(0, 0, view.width, view.height)
+                    }
+                }
             }
-            layoutParams = FrameLayout.LayoutParams(avatarSize, avatarSize, Gravity.CENTER)
+            avatarImageView.load(callerAvatar) {
+                crossfade(true)
+                transformations(CircleCropTransformation())
+                error(android.R.color.transparent)
+                listener(
+                    onError = { _, _ ->
+                        // On error, replace with initials fallback
+                        avatarImageView.visibility = View.GONE
+                        val fallbackView = buildInitialsAvatar(initials, avatarSize)
+                        avatarContainer.addView(fallbackView)
+                    }
+                )
+            }
+            avatarContainer.addView(avatarImageView)
+        } else {
+            // Fallback: colored circle with initials
+            avatarContainer.addView(buildInitialsAvatar(initials, avatarSize))
         }
-        avatarContainer.addView(avatarView)
         callerSection.addView(avatarContainer)
 
         // Caller name
@@ -505,6 +533,21 @@ class IncomingCallActivity : Activity() {
     // endregion
 
     // region Pulse Ring Animation
+
+    /** Build a circular [TextView] with initials (fallback avatar). */
+    private fun buildInitialsAvatar(initials: String, size: Int): TextView {
+        return TextView(this).apply {
+            text = initials
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 36f)
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#3F51B5"))
+            }
+            layoutParams = FrameLayout.LayoutParams(size, size, Gravity.CENTER)
+        }
+    }
 
     /**
      * Creates 3 concentric ring views behind the avatar that pulse outward

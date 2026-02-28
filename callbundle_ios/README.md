@@ -15,9 +15,10 @@ The iOS implementation of [`callbundle`](https://pub.dev/packages/callbundle).
 5. [CallKit Integration](#callkit-integration)
 6. [Audio Session Management](#audio-session-management)
 7. [Cold-Start Persistence](#cold-start-persistence)
-8. [Thread Safety](#thread-safety)
-9. [Permissions](#permissions)
-10. [Requirements](#requirements)
+8. [Caller Avatar](#caller-avatar)
+9. [Thread Safety](#thread-safety)
+10. [Permissions](#permissions)
+11. [Requirements](#requirements)
 
 ---
 
@@ -50,7 +51,7 @@ Add the VoIP background mode to your `Info.plist`:
 | `PushKitHandler` | `PushKitHandler.swift` | PKPushRegistry delegate, VoIP token management |
 | `AudioSessionManager` | `AudioSessionManager.swift` | AVAudioSession with `.mixWithOthers` |
 | `CallStore` | `CallStore.swift` | Thread-safe call tracking + cold-start persistence |
-| `MissedCallNotificationManager` | `MissedCallNotificationManager.swift` | UNUserNotificationCenter for missed calls |
+| `MissedCallNotificationManager` | `MissedCallNotificationManager.swift` | UNUserNotificationCenter for missed calls (with avatar attachment) |
 
 ---
 
@@ -104,7 +105,7 @@ curl -v \
   --header "apns-push-type: voip" \
   --header "apns-priority: 10" \
   --header "apns-expiration: 0" \
-  --data '{"callId":"abc-123","callerName":"John Doe","handle":"+1234567890"}' \
+  --data '{"callId":"abc-123","callerName":"John Doe","handle":"+1234567890","callerAvatar":"https://example.com/photo.jpg"}' \
   https://api.sandbox.push.apple.com/3/device/<VOIP_DEVICE_TOKEN>
 
 # Production
@@ -120,7 +121,8 @@ The plugin expects these fields in the VoIP push payload:
   "callId": "unique-call-id",
   "callerName": "John Doe",
   "handle": "+1234567890",
-  "hasVideo": false
+  "hasVideo": false,
+  "callerAvatar": "https://example.com/photos/john.jpg"
 }
 ```
 
@@ -130,8 +132,9 @@ The plugin expects these fields in the VoIP push payload:
 | `callerName` | `String` | Yes | Displayed on the CallKit screen |
 | `handle` | `String` | No | Phone number or SIP address |
 | `hasVideo` | `Bool` | No | Show video call UI (default: `false`) |
+| `callerAvatar` | `String` | No | URL for caller profile photo (used in missed call notifications) |
 
-Alternative field names are also supported: `caller_name`, `phone`, `has_video`.
+Alternative field names are also supported: `caller_name`, `phone`, `has_video`, `caller_avatar`.
 
 ### Step 4: Token-Based Authentication (Alternative)
 
@@ -235,7 +238,20 @@ The plugin tracks `programmaticEndUUIDs` — when your code calls `CallBundle.en
 4. Dart calls `CallBundle.configure()` → `deliverPendingEvents()` delivers stored event
 5. No hardcoded delays — events delivered as soon as Dart is ready
 
-Call metadata (`extra`, `callerName`, `handle`) is preserved through the store.
+Call metadata (`extra`, `callerName`, `handle`, `callerAvatar`) is preserved through the store.
+
+---
+
+## Caller Avatar
+
+When `callerAvatar` is provided (via `NativeCallParams` or the VoIP push payload), the plugin uses it for **missed call notifications**:
+
+1. `MissedCallNotificationManager` downloads the image from the URL asynchronously
+2. The image is saved to a temp file and attached via `UNNotificationAttachment`
+3. iOS displays the avatar as the notification thumbnail
+4. If the download fails, the notification is shown without an avatar (graceful fallback)
+
+> **Note:** CallKit's incoming call UI uses the contact's photo from `Contacts.framework` — the `callerAvatar` field does not affect the CallKit screen.
 
 ---
 

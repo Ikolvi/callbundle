@@ -520,6 +520,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                     callType = callType,
                     state = "ringing",
                     isAccepted = false,
+                    callerAvatar = callerAvatar,
                     extra = extra
                 )
             )
@@ -557,6 +558,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             val callerName = paramsMap["callerName"] as? String ?: "Unknown"
             val callType = (paramsMap["callType"] as? Number)?.toInt() ?: 0
             val extra = paramsMap["extra"] as? Map<*, *> ?: emptyMap<String, Any>()
+            val callerAvatar = paramsMap["callerAvatar"] as? String
 
             callStateManager?.addCall(
                 CallInfo(
@@ -565,6 +567,7 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                     callType = callType,
                     state = "dialing",
                     isAccepted = false,
+                    callerAvatar = callerAvatar,
                     extra = extra
                 )
             )
@@ -572,7 +575,8 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             notificationHelper?.showOngoingCallNotification(
                 callId = callId,
                 callerName = callerName,
-                callType = callType
+                callType = callType,
+                callerAvatar = callerAvatar
             )
 
             result.success(null)
@@ -659,7 +663,8 @@ class CallBundlePlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 notificationHelper?.showOngoingCallNotification(
                     callId = callInfo.callId,
                     callerName = callInfo.callerName,
-                    callType = callInfo.callType
+                    callType = callInfo.callType,
+                    callerAvatar = callInfo.callerAvatar
                 )
             }
 

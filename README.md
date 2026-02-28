@@ -40,6 +40,7 @@ Existing call plugins suffer from silent event drops, cold-start failures, and O
 | OEM-adaptive notifications | — | 18+ manufacturers detected |
 | Missed call notifications | UNNotification | NotificationCompat |
 | Audio session management | AVAudioSession | — |
+| Caller avatar support | Missed call notifications | Incoming call UI + notifications |
 | Consumer ProGuard rules | — | Built-in |
 | Background isolate support | — | BinaryMessenger |
 
@@ -88,6 +89,7 @@ await CallBundle.showIncomingCall(NativeCallParams(
   callerName: 'John Doe',
   handle: '+1 234 567 8900',
   callType: NativeCallType.voice,
+  callerAvatar: 'https://example.com/photos/john.jpg',
   android: const AndroidCallParams(),
   ios: const IosCallParams(),
 ));

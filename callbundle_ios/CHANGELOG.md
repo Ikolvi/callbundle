@@ -1,3 +1,11 @@
+## 1.0.14
+
+* **Caller avatar support** — profile photos attached to missed call notifications via `UNNotificationAttachment`.
+* `PushKitHandler` reads `callerAvatar` / `caller_avatar` from VoIP push payload.
+* `CallStore.addCall` and `addOrUpdateCall` now accept and persist `callerAvatar`.
+* `MissedCallNotificationManager` downloads avatar image and attaches it to the notification.
+* Documentation updates — new Caller Avatar section, updated APNs payload format.
+
 ## 1.0.13
 
 * Version alignment — all CallBundle packages now share the same version number.

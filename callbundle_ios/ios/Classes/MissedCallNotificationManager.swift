@@ -6,6 +6,9 @@ import UserNotifications
 /// When a call is missed (not answered within the timeout),
 /// this manager posts a local notification so the user sees
 /// the missed call even if the app was killed.
+///
+/// Supports profile photo avatars via `UNNotificationAttachment`
+/// (downloaded and saved to a temp file).
 class MissedCallNotificationManager {
 
     // MARK: - Properties
@@ -34,7 +37,9 @@ class MissedCallNotificationManager {
     /// Shows a missed call notification.
     ///
     /// Called when a call ends without being answered (timeout or caller hangup).
-    func showMissedCallNotification(callerName: String, handle: String, callId: String) {
+    /// If `callerAvatar` is provided, downloads the image and attaches it
+    /// to the notification via `UNNotificationAttachment`.
+    func showMissedCallNotification(callerName: String, handle: String, callId: String, callerAvatar: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = NSLocalizedString("Missed Call", comment: "Missed call notification title")
         content.body = callerName.isEmpty ? handle : callerName
@@ -47,20 +52,67 @@ class MissedCallNotificationManager {
             "type": "missed_call",
         ]
 
-        // Use callId as identifier so duplicate notifications are replaced
-        let request = UNNotificationRequest(
-            identifier: "callbundle_missed_\(callId)",
-            content: content,
-            trigger: nil // Deliver immediately
-        )
+        // Download avatar and attach to notification (async, fire on background)
+        downloadAvatar(urlString: callerAvatar) { attachment in
+            if let attachment = attachment {
+                content.attachments = [attachment]
+            }
 
-        notificationCenter.add(request) { error in
-            if let error = error {
-                NSLog("[CallBundle] Failed to show missed call notification: \(error.localizedDescription)")
-            } else {
-                NSLog("[CallBundle] Missed call notification shown for: \(callerName)")
+            // Use callId as identifier so duplicate notifications are replaced
+            let request = UNNotificationRequest(
+                identifier: "callbundle_missed_\(callId)",
+                content: content,
+                trigger: nil // Deliver immediately
+            )
+
+            self.notificationCenter.add(request) { error in
+                if let error = error {
+                    NSLog("[CallBundle] Failed to show missed call notification: \(error.localizedDescription)")
+                } else {
+                    NSLog("[CallBundle] Missed call notification shown for: \(callerName)")
+                }
             }
         }
+    }
+
+    // MARK: - Avatar Download
+
+    /// Downloads an avatar image from URL and creates a `UNNotificationAttachment`.
+    ///
+    /// Returns `nil` if the URL is invalid, download fails, or file cannot be saved.
+    private func downloadAvatar(urlString: String?, completion: @escaping (UNNotificationAttachment?) -> Void) {
+        guard let urlString = urlString, !urlString.isEmpty, let url = URL(string: urlString) else {
+            completion(nil)
+            return
+        }
+
+        let task = URLSession.shared.downloadTask(with: url) { tempUrl, response, error in
+            guard let tempUrl = tempUrl, error == nil else {
+                NSLog("[CallBundle] Avatar download failed: \(error?.localizedDescription ?? "unknown")")
+                completion(nil)
+                return
+            }
+
+            // Move to a unique temp location with .jpg extension (required by UNNotificationAttachment)
+            let fileManager = FileManager.default
+            let destUrl = fileManager.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("jpg")
+
+            do {
+                try fileManager.moveItem(at: tempUrl, to: destUrl)
+                let attachment = try UNNotificationAttachment(
+                    identifier: "avatar",
+                    url: destUrl,
+                    options: [UNNotificationAttachmentOptionsThumbnailClippingRectKey: CGRect(x: 0, y: 0, width: 1, height: 1).dictionaryRepresentation]
+                )
+                completion(attachment)
+            } catch {
+                NSLog("[CallBundle] Avatar attachment creation failed: \(error.localizedDescription)")
+                completion(nil)
+            }
+        }
+        task.resume()
     }
 
     /// Removes a missed call notification by callId.

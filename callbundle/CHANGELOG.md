@@ -1,3 +1,8 @@
+## 1.0.15
+
+* Updated dependency constraints to require callbundle_platform_interface ^1.0.14, callbundle_android ^1.0.14, callbundle_ios ^1.0.14.
+* Documentation updates for caller avatar feature — `callerAvatar` now supported on both platforms.
+
 ## 1.0.14
 
 * Updated dependency constraints to require callbundle_platform_interface ^1.0.13, callbundle_android ^1.0.13, callbundle_ios ^1.0.13.

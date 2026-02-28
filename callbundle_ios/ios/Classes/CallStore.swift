@@ -24,7 +24,7 @@ class CallStore {
     // MARK: - Active Call Management
 
     /// Adds a call to the active call store.
-    func addCall(callId: String, callerName: String, handle: String, extra: [String: Any]? = nil) {
+    func addCall(callId: String, callerName: String, handle: String, callerAvatar: String? = nil, extra: [String: Any]? = nil) {
         queue.sync {
             activeCalls[callId] = CallInfo(
                 callId: callId,
@@ -32,6 +32,7 @@ class CallStore {
                 handle: handle,
                 state: "incoming",
                 startedAt: Date(),
+                callerAvatar: callerAvatar,
                 extra: extra ?? [:]
             )
             NSLog("[CallBundle] CallStore.addCall: key='\(callId)', extraCount=\(extra?.count ?? 0), totalCalls=\(activeCalls.count)")
@@ -44,7 +45,7 @@ class CallStore {
     /// - PushKit stores a basic entry (callerName, handle only).
     /// - FCM/Dart later calls handleShowIncomingCall with full extra (8 keys).
     /// - This method merges the richer data into the existing entry.
-    func addOrUpdateCall(callId: String, callerName: String, handle: String, extra: [String: Any]? = nil) {
+    func addOrUpdateCall(callId: String, callerName: String, handle: String, callerAvatar: String? = nil, extra: [String: Any]? = nil) {
         queue.sync {
             if var existing = activeCalls[callId] {
                 // Merge new extra into existing extra (new values override)
@@ -52,8 +53,12 @@ class CallStore {
                     for (key, value) in newExtra {
                         existing.extra[key] = value
                     }
-                    activeCalls[callId] = existing
                 }
+                // Update avatar if a non-nil value is provided
+                if let avatar = callerAvatar, !avatar.isEmpty {
+                    existing.callerAvatar = avatar
+                }
+                activeCalls[callId] = existing
                 NSLog("[CallBundle] CallStore.addOrUpdateCall: UPDATED key='\(callId)', mergedExtraCount=\(existing.extra.count)")
             } else {
                 activeCalls[callId] = CallInfo(
@@ -62,6 +67,7 @@ class CallStore {
                     handle: handle,
                     state: "incoming",
                     startedAt: Date(),
+                    callerAvatar: callerAvatar,
                     extra: extra ?? [:]
                 )
                 NSLog("[CallBundle] CallStore.addOrUpdateCall: NEW key='\(callId)', extraCount=\(extra?.count ?? 0)")
@@ -181,5 +187,6 @@ struct CallInfo {
     let handle: String
     var state: String
     let startedAt: Date
+    var callerAvatar: String?
     var extra: [String: Any]
 }
