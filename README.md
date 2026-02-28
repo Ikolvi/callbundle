@@ -20,7 +20,7 @@ Existing call plugins suffer from silent event drops, cold-start failures, and O
 |---------|---------------------|
 | EventChannel accept events silently dropped | **MethodChannel for ALL communication** |
 | 3 parallel accept-detection paths | **Single reliable MethodChannel path** |
-| Budget OEM no| Budget OEM no| Budget OEM no| Budget OEM no| Budget OEM no| Bu strategy** |
+| Budget OEM notifications silently fail | **Built-in OEM-adaptive notification strategy** |
 | Cold-start 3-second hardcoded delay | **Deterministic PendingCallStore handshake** |
 | iOS audio session conflict with HMS | **AudioSessionManager with `.mixWithOthers`** |
 | 16 ProGuard keep rules in app | **Consumer ProGuard rules shipped in plugin** |
@@ -41,7 +41,30 @@ Existing call plugins suffer from silent event drops, cold-start failures, and O
 | Missed call notifications | UNNotification | NotificationCompat |
 | Audio session management | AVAudioSession | — |
 | Consumer ProGuard rules | — | Built-in |
-| Background isolate support | — | BinaryMess| Background isolate support | — | BinaryMess| Background isolate supportndle: ^1.0.0| Background isolate support | — | BinaryMess| Background isolate support | — | BiBu| Background isolate support | — | BinaryMess| Background isolroid: AndroidCallConfig(phoneAccountLabel: 'MyApp Calls'),
+| Background isolate support | — | BinaryMessenger |
+
+---
+
+## Quick Start
+
+### Installation
+
+```yaml
+dependencies:
+  callbundle: ^1.0.0
+```
+
+The Android and iOS platform packages are **endorsed** — they are automatically included. No additional dependency lines needed.
+
+### Usage
+
+```dart
+import 'package:callbundle/callbundle.dart';
+
+// 1. Configure
+await CallBundle.configure(NativeCallConfig(
+  appName: 'MyApp',
+  android: AndroidCallConfig(phoneAccountLabel: 'MyApp Calls'),
   ios: IosCallConfig(supportsVideo: false, includesCallsInRecents: true),
 ));
 
@@ -49,10 +72,11 @@ Existing call plugins suffer from silent event drops, cold-start failures, and O
 CallBundle.onEvent.listen((event) {
   switch (event.type) {
     case NativeCallEventType.accepted:
-      prin      prin      prin      prin      prin      prin      pventType.declined:
+      print('Call accepted: ${event.callId}');
+    case NativeCallEventType.declined:
       print('Call declined: ${event.callId}');
     case NativeCallEventType.ended:
-      print      print      print      print      print      print      pri;
+      print('Call ended: ${event.callId}');
     default:
       break;
   }
@@ -88,7 +112,10 @@ await CallBundle.endCall('unique-call-id');
 
 ---
 
-## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ## ##��## ## ## ## ## ## #�──�## ## ## ## ## ## ## ##��─────┐
+## Architecture
+
+```
+┌─────────────────────────────────┐
 │         Your Flutter App        │
 │   import 'callbundle.dart'      │
 └──────────────┬──────────────────┘
@@ -98,7 +125,9 @@ await CallBundle.endCall('unique-call-id');
 │   Static CallBundle API class   │
 └──────────────┬──────────────────┘
                │
-┌──────────────▼─────────────────�┌──────────────▼─────────────────�┌─� Enums         │
+┌──────────────▼──────────────────┐
+│  callbundle_platform_interface  │
+│  Abstract API + Models + Enums  │
 └──────┬──────────────────┬───────┘
        │                  │
 ┌──────▼──────┐   ┌───────▼──────┐
@@ -121,11 +150,32 @@ All communication uses **MethodChannel** (`com.callbundle/main`) in both directi
 | iOS | 13.0+ |
 | Android | API 21 (Android 5.0) |
 | Kotlin | 1.9+ |
-| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ |undle | Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| Swift | 5.0+ | Swift | 5.0+ |opm| tter test
-cd callbundle && fvm flucd callbundle && fvm fl_android && fvm flutter test
+| Swift | 5.0+ |
+
+---
+
+## Development
+
+This project uses [Melos](https://melos.invertase.dev/) for monorepo management and [FVM](https://fvm.app/) for Flutter version management.
+
+```bash
+# Bootstrap all packages
+melos bootstrap
+
+# Run analysis across all packages
+melos run analyze
+
+# Run tests across all packages
+melos run test
+
+# Run tests for a specific package
+cd callbundle && fvm flutter test
+cd callbundle_android && fvm flutter test
 cd callbundle_ios && fvm flutter test
 
-# Run # Run # Run # Run # Run # Run # Run # Run
+# Build example app
+cd example && fvm flutter build apk --debug    # Android
+cd example && fvm flutter build ios --no-codesign  # iOS
 ```
 
 ---
