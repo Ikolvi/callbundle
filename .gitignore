@@ -20,6 +20,9 @@ Thumbs.db
 # VS Code related
 .vscode/
 
+# Copilot instructions
+.github/copilot-instructions.md
+
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
