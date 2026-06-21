@@ -67,6 +67,9 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
         instance.pushKitHandler = PushKitHandler(plugin: instance)
 
         CallBundlePlugin.shared = instance
+
+        // Register PushKit AFTER all initialization is complete
+        instance.pushKitHandler?.registerForVoipPush()
     }
 
     // MARK: - MethodChannel Handler
@@ -129,9 +132,6 @@ public class CallBundlePlugin: NSObject, FlutterPlugin {
             maximumCallsPerCallGroup: maximumCallsPerCallGroup,
             includesCallsInRecents: includesCallsInRecents
         )
-
-        // Register PushKit
-        pushKitHandler?.registerForVoipPush()
 
         // Send ready signal
         isReady = true
