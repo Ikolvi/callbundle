@@ -1,13 +1,11 @@
 # Continuous integration: format, analyze, and test the CallBundle packages on
 # pushes and pull requests targeting main.
 #
-# Notes:
-# * `melos bootstrap --no-example` wires up path overrides for the five workspace
-#   packages (the four libraries + the top-level `example`) but skips the
-#   auto-generated per-plugin example harnesses, which can't be resolved before
-#   the packages are published (their hosted version constraints aren't on
-#   pub.dev yet).
-# * Analyze/test iterate the real packages explicitly to avoid those harnesses.
+# Resolution: the federated packages depend on each other via hosted `^x.y.z`
+# constraints that may not be published yet, so `tool/wire_overrides.sh` writes
+# local path `pubspec_overrides.yaml` files (gitignored, never published) before
+# `flutter pub get`. This is deterministic and avoids melos's
+# environment-specific override generation.
 name: CI
 
 on:
@@ -34,16 +32,24 @@ jobs:
         with:
           channel: stable
 
-      - name: Install melos
-        run: |
-          dart pub global activate melos 6.3.3
-          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+      - name: Wire local path overrides
+        run: bash tool/wire_overrides.sh
 
-      - name: Bootstrap workspace
-        run: melos bootstrap --no-example
+      - name: Get dependencies
+        run: |
+          set -e
+          for p in callbundle_platform_interface callbundle_android callbundle_ios callbundle example; do
+            echo "::group::pub get $p"
+            (cd "$p" && flutter pub get)
+            echo "::endgroup::"
+          done
 
       - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed .
+        run: |
+          # Check the source we maintain; the auto-generated per-plugin example
+          # apps are excluded as their boilerplate formatting varies by SDK patch.
+          files=$(git ls-files '*.dart' | grep -vE '^callbundle_(android|ios)/example/')
+          dart format --output=none --set-exit-if-changed $files
 
       - name: Analyze
         run: |
@@ -83,13 +89,8 @@ jobs:
         with:
           channel: stable
 
-      - name: Install melos
-        run: |
-          dart pub global activate melos 6.3.3
-          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
-
-      - name: Bootstrap workspace
-        run: melos bootstrap --no-example
+      - name: Wire local path overrides
+        run: bash tool/wire_overrides.sh
 
       - name: Build example APK (validates Android/Kotlin)
         working-directory: example
